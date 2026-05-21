@@ -69,4 +69,8 @@ Each version is independently useful — if priorities change after any mileston
 
 ## License
 
-TBD — see open question in the v1 design doc.
+[MIT](./LICENSE) © 2026 Huifu Ma.
+
+OpenTAP itself, which OpenFlow currently depends on at runtime, is licensed under
+[MPL-2.0](https://opensource.org/licenses/MPL-2.0); the two licenses are
+compatible for this use (we link to OpenTAP without modifying its source).
