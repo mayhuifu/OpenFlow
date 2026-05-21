@@ -1,0 +1,28 @@
+# .NET build output
+bin/
+obj/
+out/
+*.user
+*.suo
+*.userprefs
+
+# Rider / Visual Studio
+.idea/
+.vs/
+*.swp
+.DS_Store
+
+# NuGet
+*.nupkg
+.nuget/
+
+# Test results
+TestResults/
+coverage.*
+
+# Local tool config
+.claude/
+
+# Logs / scratch
+*.log
+scratch/
