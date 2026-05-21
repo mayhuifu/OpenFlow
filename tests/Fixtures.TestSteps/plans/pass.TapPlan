@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestPlan type="OpenTap.TestPlan">
+  <Steps>
+    <TestStep type="Fixtures.TestSteps.PassStep" Id="11111111-1111-1111-1111-111111111111">
+      <Enabled>true</Enabled>
+      <Name>Pass Step</Name>
+    </TestStep>
+  </Steps>
+  <Package.Dependencies />
+</TestPlan>

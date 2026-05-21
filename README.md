@@ -13,8 +13,9 @@ RF/BB testing. v1 is the smallest useful step toward that.
 
 ## Status
 
-🚧 **Pre-implementation.** v1 design is drafted and awaiting engineering
-review. See [docs/superpowers/specs/2026-05-21-openflow-v1-design.md](docs/superpowers/specs/2026-05-21-openflow-v1-design.md).
+🚀 **v1 shipped on the `v1-implementation` branch.**
+- Design: [docs/superpowers/specs/2026-05-21-openflow-v1-design.md](docs/superpowers/specs/2026-05-21-openflow-v1-design.md)
+- Implementation plan: [docs/superpowers/plans/2026-05-21-openflow-v1.md](docs/superpowers/plans/2026-05-21-openflow-v1.md)
 
 ## v1 in one sentence
 
@@ -25,6 +26,34 @@ openflow run path/to/plan.TapPlan --plugins ./plugins --out results.json
 …loads vendor plugin DLLs, runs an existing OpenTAP `.TapPlan`, writes a
 structured JSON result file, and exits 0 / 1 / 2 / 130 based on the plan
 verdict.
+
+## Usage (v1)
+
+```sh
+dotnet src/OpenFlow.Cli/bin/Release/net8.0/openflow.dll run path/to/plan.TapPlan \
+  --plugins ./plugins \
+  --out results.json
+```
+
+Exit codes:
+
+| Verdict | Exit |
+| ------- | ---- |
+| Pass    | 0    |
+| Fail    | 1    |
+| Error   | 2    |
+| Aborted | 130  |
+
+Setup-error codes (BSD sysexits.h): 64 usage, 65 bad plan file, 66 missing plugins dir, 70 plugin load failure.
+
+## Build and test
+
+```sh
+dotnet build
+dotnet test
+```
+
+Requires the .NET 8 SDK.
 
 ## Roadmap
 
@@ -40,4 +69,8 @@ Each version is independently useful — if priorities change after any mileston
 
 ## License
 
-TBD — see open question in the v1 design doc.
+[MIT](./LICENSE) © 2026 Huifu Ma.
+
+OpenTAP itself, which OpenFlow currently depends on at runtime, is licensed under
+[MPL-2.0](https://opensource.org/licenses/MPL-2.0); the two licenses are
+compatible for this use (we link to OpenTAP without modifying its source).
