@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, v1-implementation ]
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore
+      - name: Build
+        run: dotnet build --configuration Release --no-restore /warnaserror
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
+      - name: Smoke run (pass plan)
+        shell: bash
+        run: |
+          dotnet src/OpenFlow.Cli/bin/Release/net8.0/openflow.dll run \
+            tests/Fixtures.TestSteps/bin/Release/net8.0/plans/pass.TapPlan \
+            --plugins tests/Fixtures.TestSteps/bin/Release/net8.0 \
+            --out smoke.json
+          cat smoke.json
+          test "$(jq -r .verdict smoke.json)" = "Pass"
