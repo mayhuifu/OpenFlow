@@ -12,4 +12,10 @@
     <PackageReference Include="OpenTAP" Version="9.27.*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="plans/*.TapPlan">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
