@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# uv / venv
+.venv/
+venv/
+env/
+.python-version
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.cache/
+
+# pytest output
+report.json
+report.html
+junit.xml
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# IDEs / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local tool config
+.claude/
+
+# OS / misc
+*.log
+scratch/
