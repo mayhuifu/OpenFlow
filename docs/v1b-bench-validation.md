@@ -307,7 +307,43 @@ All of these were originally listed as "V2 work" but landed in V1c:
 
 ## What V2 will still smooth out
 
-- A transformer that rewrites `Setup_DMM()` → `setup_dmm(dmms=…)` calls to
-  fully automate step 4.
 - A transformer that lifts simple loop bodies into `@pytest.mark.parametrize` (step 6).
 - A transformer that adds `pytest.skip(...)` for known "should not have been measured" branches (step 7 — at least the common patterns).
+- `Print_Summary` rewrite (currently left as a bare-name call; engineer manually replaces with `logger.info`).
+
+## Validating the migrator on a second EVT test (V1g gate)
+
+The V1e migrator is exercised by exactly one canonical fixture
+(`tests-internal/fixtures/sample_opentap_tx_evm.py`). To raise confidence
+before bulk-migrating the remaining ~12 EVT tests, drop a **second**
+OpenTAP-Python EVT test source into the workspace and run the migrator
+on it — the failure surface will reveal any patterns the current 20
+transformers don't handle.
+
+### How to add a second source
+
+1. Copy the OpenTAP-Python source file (e.g. `U300B0_RFEB_EVT_RX_Gain.py`)
+   into `tests-internal/fixtures/`. Keep the original filename so the
+   test class name is preserved.
+2. Run the migrator and inspect the output:
+
+   ```sh
+   uv run openflow migrate tests-internal/fixtures/U300B0_RFEB_EVT_RX_Gain.py
+   ```
+
+3. Check the emitted file (next to the source, prefixed `test_`) against
+   what an engineer would have hand-edited. Common gaps to look for:
+   - Inherited helpers other than `Setup_DMM`/`Get_DMM`/`Get_Aux` (e.g.
+     RX-specific helpers): need a new entry in `_EVT_HELPER_MAP`.
+   - OpenTAP input property names that don't match OpenFlowConfig fields:
+     add to `_CONFIG_NAME_MAP` in `transformers.py`.
+   - New verdict patterns the `ConvertVerdictCalls` transformer doesn't
+     recognize.
+
+4. Pin the new fixture in `tests-internal/test_migrate_pipeline.py` with
+   a second-fixture variant of `test_pipeline_strips_opentap_scaffolding`
+   etc. so regressions show up in CI immediately.
+
+This is gated on **engineer-provided source**: the OpenFlow repo does
+not ship any of the 12 remaining EVT tests since they're proprietary to
+the U300 product line.
