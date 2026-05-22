@@ -9,19 +9,22 @@ nothing else.
 
 ## Status
 
-🚧 **Pre-implementation.** v1 design is drafted and awaiting engineering review.
-See [docs/superpowers/specs/2026-05-22-openflow-v1-design.md](docs/superpowers/specs/2026-05-22-openflow-v1-design.md).
+🚀 **V1a shipped on the `python-v1` branch.** Framework + migration tool + one
+migrated demo test, all green in CI under emulation. Bench validation (V1b)
+remains, gated on porting `DUT_U300` + `DUT_FT2232H` from the existing
+`UMT_DUTs` package.
 
-## What v1 ships
+- Spec: [`docs/superpowers/specs/2026-05-22-openflow-v1-design.md`](docs/superpowers/specs/2026-05-22-openflow-v1-design.md)
+- Plan: [`docs/superpowers/plans/2026-05-22-openflow-v1a.md`](docs/superpowers/plans/2026-05-22-openflow-v1a.md) (+ [supplement](docs/superpowers/plans/2026-05-22-openflow-v1a-supplement.md))
 
-1. A pytest plugin (`openflow.plugin`) with fixtures: `cmw100`, `dut`, `config`, `results`.
-2. A YAML config loader with typed validation.
-3. A CMW100 driver (SCPI over LAN via PyVISA) covering the methods used by the
-   Tx EVM Power Sweep test.
-4. A migration CLI: `openflow migrate <old_test.py>` rewrites an OpenTAP-Python
-   test into a bare-metal pytest test using libcst.
-5. The `U300B0_RFEB_EVT_TX_EVM_Power_Sweep` test ported, running against a real
-   CMW100, producing a JSON report.
+## What V1a ships
+
+1. **Pytest plugin** (`openflow.plugin`) with fixtures: `cmw100`, `dut`, `config`, `results`, plus stub fixtures `wfg`, `dmm_c`, `dmm_v` for the migrated test's signature.
+2. **YAML config loader** with pydantic v2 typed validation (`openflow.config`).
+3. **CMW100 driver** (`openflow.instruments.cmw100`) — port of `UMT_Instruments/CMW100.py` minus OpenTAP, using R&S's official Python SDK (`RsCmwGprfGen`, `RsCmwGprfMeas`, `RsCmwNrFr1Meas`, etc.). The TX-EVM subset of measurements is ported (`setup_NrTx`, `meas_NrTxAll`, `meas_NrTxEVM`, `meas_NrTxPower`); other measurements port on demand.
+4. **rfengine helpers** (`openflow.rfengine.{deembedding,testconditions_limits,calibration_file}`) — ports of the three loaders from `U300_RFEngine/`.
+5. **Migration CLI:** `openflow migrate <old_test.py>` rewrites an OpenTAP-Python test into a bare-metal pytest test using libcst. 11 transformer stages.
+6. **Migrated demo:** `tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py` (output of the migrator on the real TX EVM source), collects cleanly via `pytest --collect-only`.
 
 ## Quick taste
 
@@ -55,7 +58,32 @@ Run it:
 
 ```sh
 uv sync
-uv run pytest tests/test_rx_gain_accuracy.py --config tests/configs/u300b0_evt.yaml --report report.json
+uv run pytest tests/test_rx_gain_accuracy.py \
+  --openflow-config=tests/configs/u300b0_evt.yaml \
+  --openflow-report=report.json
+```
+
+## Quickstart (V1a)
+
+```sh
+# Set up
+uv sync
+
+# Run the internal test suite (framework + migrator, no bench needed)
+uv run pytest tests-internal
+
+# Convert an OpenTAP-Python test to bare-metal pytest
+uv run openflow migrate path/to/OpenTAP_Test.py
+# → emits path/to/test_opentap_test.py + summary of items to clean up
+
+# Collect-check the V1a migrated demo (no bench needed)
+uv run pytest tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py \
+  --openflow-config=tests/configs/u300b0_evt.yaml --collect-only
+
+# Bench run (V1b — needs real CMW100 + DUT_U300 once V1b lands)
+uv run pytest tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py \
+  --openflow-config=tests/configs/u300b0_evt.yaml \
+  --openflow-report=report.json
 ```
 
 ## Roadmap

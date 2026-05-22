@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, python-v1]
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Lint (ruff)
+        run: uv run ruff check
+      - name: Type-check (mypy)
+        run: uv run mypy openflow
+      - name: Test (framework + migrator)
+        run: uv run pytest tests-internal -v
+      - name: Collect-check (migrated demo test imports cleanly)
+        shell: bash
+        run: |
+          uv run pytest tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py \
+            --openflow-config=tests/configs/u300b0_evt.yaml --collect-only
+      - name: Smoke-test the migrate CLI
+        shell: bash
+        run: |
+          uv run openflow migrate tests-internal/fixtures/sample_opentap_tx_evm.py \
+            --out /tmp/migrated_smoke.py
+          test -s /tmp/migrated_smoke.py
+          grep -q "def test_u300b0_rfeb_evt_tx_evm_power_sweep" /tmp/migrated_smoke.py
