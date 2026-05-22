@@ -1,0 +1,35 @@
+# OpenFlow demo configuration for the U300B0 RFEB EVT TX EVM Power Sweep test.
+#
+# V1a: resource string defaults to "MOCK::CMW100::INSTR" which routes the CMW100
+# fixture to is_emulation=True (no bench needed). To run V1b bench validation,
+# change cmw100.resource to a real VISA address (e.g. "TCPIP::192.168.1.100::INSTR").
+#
+# Frequencies / modulation / band defaults are placeholders for the demo;
+# substitute real values for actual bench runs.
+
+instruments:
+  cmw100:
+    resource: "MOCK::CMW100::INSTR"   # change to TCPIP::<ip>::INSTR for bench
+
+band: n78
+modulation: "16QAM"
+rfbw_Hz: 100000000          # 100 MHz channel
+dl_freq_pll_Hz: 3600000000  # 3.6 GHz
+ul_freq_pll_Hz: 3500000000  # 3.5 GHz
+dl_config: RX0_ANT0
+dl_config_active: RX0_ANT0
+ul_config: TX0_ANT0
+scs_Hz: 30000               # 30 kHz subcarrier spacing
+rb_centre_freq_Hz: 3500000000
+freq_offset_dl_Hz: 0
+rx_gain_dB: 30
+tx_power_dBm: 0.0
+tx_power_backoff_dB: 5.0
+rx_power_backoff_dB: 10.0
+tx_dac_backoff_dBFS: 6.0
+board_config: RFEB1
+
+# Lookup-table files (V1a: paths recorded but content not validated yet)
+limits_path: ../../configs/limits/U300B0.yaml
+deembedding_path: ../../configs/deembedding/U300B0.yaml
+calibration_path: ../../configs/calibration/U300B0.yaml

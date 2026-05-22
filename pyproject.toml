@@ -1,0 +1,131 @@
+[project]
+name = "openflow"
+version = "0.1.0a1"
+description = "Bare-metal Python test framework for RF/baseband HW automation"
+authors = [{ name = "Huifu Ma", email = "mayhuifu@gmail.com" }]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest>=8.0",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+    "libcst>=1.1",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    # R&S Python SDK for CMW100 control (replaces raw PyVISA SCPI).
+    # Required at runtime by openflow.instruments.cmw100_a / cmw100_g.
+    # Note: PyPI distribution name for the Base package is hyphenated ("rscmw-base"),
+    # while it still imports as `from RsCmwBase import *` in code.
+    "rscmw-base>=4.0",
+    "RsCmwGprfGen>=4.0",
+    "RsCmwGprfMeas>=4.0",
+    "RsCmwLteSig>=4.0",
+    "RsCmwLteMeas>=4.0",
+    "RsCmwNrFr1Meas>=3.8",
+]
+
+[project.scripts]
+openflow = "openflow.migrate.cli:main"
+
+[project.entry-points.pytest11]
+openflow = "openflow.plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "types-PyYAML",
+    "pandas-stubs",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["openflow"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Migrated demo output is a V1a artifact, not maintained code. The engineer
+# cleans it up by hand during V1b porting. Excluded from lint here.
+extend-exclude = [
+    # Migrated demo output — V1a artifact, not maintained code.
+    "tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py",
+    # Vendored OpenTAP test sources — used as input fixtures for transformer
+    # tests. We don't own this code, we just consume it.
+    "tests-internal/fixtures/sample_opentap_*.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Ported R&S SDK code uses star imports per the SDK's documented public API.
+# F403/F405: star imports are intentional. E711/B007/F841: legacy patterns preserved
+# verbatim from the production source (changing them risks subtle behavior diffs).
+"openflow/instruments/cmw100_a.py" = ["F403", "F405", "E711", "B007"]
+"openflow/instruments/cmw100_g.py" = ["F403", "F405", "E711", "F841"]
+# Ported rfengine code is legacy Python; signatures preserved as-is.
+"openflow/rfengine/calibration_file.py" = ["RUF013", "E711", "B007", "F841", "B904", "B905"]
+"openflow/rfengine/deembedding.py" = ["RUF013", "E711", "B007"]
+"openflow/rfengine/testconditions_limits.py" = ["RUF013", "E711"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "libcst.*",
+    "RsCmwBase", "RsCmwBase.*",
+    "RsCmwGprfGen", "RsCmwGprfGen.*",
+    "RsCmwGprfMeas", "RsCmwGprfMeas.*",
+    "RsCmwLteSig", "RsCmwLteSig.*",
+    "RsCmwLteMeas", "RsCmwLteMeas.*",
+    "RsCmwNrFr1Meas", "RsCmwNrFr1Meas.*",
+    "rscmw_base", "rscmw_base.*",
+    "skrf", "skrf.*",
+]
+ignore_missing_imports = true
+
+# Ported R&S / rfengine modules: relax strict checking. These are mechanical ports
+# of untyped legacy Python that talks to an untyped R&S SDK. Adding strict types
+# without per-method audit risks misclassifying R&S SDK return shapes.
+[[tool.mypy.overrides]]
+module = [
+    "openflow.instruments.cmw100_a",
+    "openflow.instruments.cmw100_g",
+    "openflow.rfengine.deembedding",
+    "openflow.rfengine.testconditions_limits",
+    "openflow.rfengine.calibration_file",
+]
+ignore_errors = true
+
+# libcst transformer code: behaviorally tested (130+ tests). libcst's strict
+# generic types create false positives for our union-heavy patterns
+# (BaseStatement vs SimpleStatementLine, BaseExpression vs Name, etc.).
+# Coverage by tests + 11 transformer unit-test files is the real correctness gate.
+[[tool.mypy.overrides]]
+module = ["openflow.migrate.transformers"]
+ignore_errors = true
+
+# CMW100 façade calls into untyped mixin methods — relax warn_return_any.
+[[tool.mypy.overrides]]
+module = ["openflow.instruments.cmw100"]
+disallow_untyped_calls = false
+warn_return_any = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests-internal", "tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "testcase(id): mark a test with its testcase ID (e.g. U300B0-RFE-EVT-005)",
+]

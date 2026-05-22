@@ -1,28 +1,60 @@
-# .NET build output
-bin/
-obj/
-out/
-*.user
-*.suo
-*.userprefs
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
 
-# Rider / Visual Studio
+# uv / venv
+.venv/
+venv/
+env/
+.python-version
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.cache/
+
+# pytest output
+report.json
+report.html
+junit.xml
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# IDEs / editor
 .idea/
-.vs/
+.vscode/
 *.swp
+*.swo
+*~
 .DS_Store
-
-# NuGet
-*.nupkg
-.nuget/
-
-# Test results
-TestResults/
-coverage.*
 
 # Local tool config
 .claude/
 
-# Logs / scratch
+# OS / misc
 *.log
 scratch/
