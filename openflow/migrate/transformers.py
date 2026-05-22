@@ -653,3 +653,374 @@ class RewriteImportPaths(cst.CSTTransformer):
         for p in parts[1:]:
             node = cst.Attribute(value=node, attr=cst.Name(p))
         return node
+
+
+# --- 12. Bare `except:` → `except Exception:` --------------------------------
+
+class StripBareExcept(cst.CSTTransformer):
+    """Convert bare `except:` clauses to `except Exception:` (PEP-8 best practice)."""
+
+    def leave_ExceptHandler(self, original_node: cst.ExceptHandler,
+                            updated_node: cst.ExceptHandler) -> cst.ExceptHandler:
+        if updated_node.type is not None:
+            return updated_node
+        return updated_node.with_changes(
+            type=cst.Name("Exception"),
+            whitespace_after_except=cst.SimpleWhitespace(" "),
+        )
+
+
+# --- 13. Add `import logging` + `logger = logging.getLogger(__name__)` -------
+
+class AddLoggingHeader(cst.CSTTransformer):
+    """If the module contains any `logger.<level>(...)` calls but no logger setup,
+    inject the standard ``import logging`` + ``logger = logging.getLogger(__name__)``
+    near the top of the module (after existing imports / __dunder__ metadata)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._has_logger_calls = False
+        self._has_logger_assignment = False
+        self._has_logging_import = False
+
+    def visit_Call(self, node: cst.Call) -> None:
+        # Detect `logger.<anything>(...)` calls.
+        func = node.func
+        if (isinstance(func, cst.Attribute)
+                and isinstance(func.value, cst.Name)
+                and func.value.value == "logger"):
+            self._has_logger_calls = True
+
+    def visit_Assign(self, node: cst.Assign) -> None:
+        # Detect `logger = ...` at any level.
+        for target in node.targets:
+            if isinstance(target.target, cst.Name) and target.target.value == "logger":
+                self._has_logger_assignment = True
+
+    def visit_Import(self, node: cst.Import) -> None:
+        for alias in node.names:
+            if isinstance(alias.name, cst.Name) and alias.name.value == "logging":
+                self._has_logging_import = True
+
+    def leave_Module(self, original_node: cst.Module,
+                     updated_node: cst.Module) -> cst.Module:
+        if not self._has_logger_calls:
+            return updated_node
+        if self._has_logger_assignment and self._has_logging_import:
+            return updated_node
+
+        new_stmts: list[cst.BaseStatement] = []
+        if not self._has_logging_import:
+            new_stmts.append(cst.parse_statement("import logging\n"))
+        if not self._has_logger_assignment:
+            new_stmts.append(cst.parse_statement("logger = logging.getLogger(__name__)\n"))
+
+        body = list(updated_node.body)
+        insert_at = self._first_non_metadata_index(body)
+        for offset, stmt in enumerate(new_stmts):
+            body.insert(insert_at + offset, stmt)
+        return updated_node.with_changes(body=tuple(body))
+
+    @staticmethod
+    def _first_non_metadata_index(body: list[cst.BaseStatement]) -> int:
+        """Find first index past module docstring + existing imports + __dunder__ metadata."""
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, cst.SimpleStatementLine):
+                # All-imports line stays in the metadata region.
+                if all(isinstance(s, (cst.Import, cst.ImportFrom)) for s in stmt.body):
+                    continue
+                first = stmt.body[0] if stmt.body else None
+                if isinstance(first, cst.Expr) and isinstance(first.value, cst.SimpleString):
+                    continue  # docstring
+                if isinstance(first, cst.Assign) and len(first.targets) == 1:
+                    t = first.targets[0].target
+                    if isinstance(t, cst.Name) and t.value.startswith("__"):
+                        continue  # __author__, __version__, etc.
+            return i
+        return len(body)
+
+
+# --- 14. Bare `in_X` (read) → `config.X` (after self-strip) ------------------
+
+class RewriteInputAttrs(cst.CSTTransformer):
+    """Rewrite bare reads of `in_<name>` to `config.<name>`.
+
+    Skips:
+    - The target of an assignment (`in_band = X` — defines a local, not a read).
+    - Any function where `in_<name>` is locally bound (assigned anywhere
+      in the function body).
+
+    Runs AFTER ConvertClassToTestFunction which strips `self.` prefixes.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Stack of sets — locally-bound `in_*` names per nested function scope.
+        self._local_in_names_stack: list[set[str]] = [set()]
+        # Track assignment-target positions so leave_Name knows to skip them.
+        self._assignment_target_ids: set[int] = set()
+        # Track kwarg-keyword Name node ids — the LHS of '=' in a call kwarg
+        # must stay a bare Name (Attribute is invalid syntax there).
+        self._kwarg_keyword_ids: set[int] = set()
+
+    def visit_Arg(self, node: cst.Arg) -> None:
+        # Don't rewrite the keyword Name of a kwarg call (e.g. f(in_band=X)).
+        if isinstance(node.keyword, cst.Name):
+            self._kwarg_keyword_ids.add(id(node.keyword))
+
+    # Track scope: enter a function, push a new set of local names.
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        local_in: set[str] = set()
+        # Find all `in_*` names assigned anywhere in the function body.
+        for n in cst.matchers.findall(
+                node,
+                cst.matchers.Assign(targets=[cst.matchers.AssignTarget(
+                    target=cst.matchers.Name())])):
+            for tgt in n.targets:
+                t = tgt.target
+                if isinstance(t, cst.Name) and t.value.startswith("in_"):
+                    local_in.add(t.value)
+        self._local_in_names_stack.append(local_in)
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef,
+                          updated_node: cst.FunctionDef) -> cst.FunctionDef:
+        self._local_in_names_stack.pop()
+        return updated_node
+
+    # Track assignment targets so we don't rewrite them.
+    def visit_Assign(self, node: cst.Assign) -> None:
+        for target in node.targets:
+            self._mark_target(target.target)
+
+    def _mark_target(self, node: cst.CSTNode) -> None:
+        # Mark this AST node's identity so leave_Name knows to skip it.
+        self._assignment_target_ids.add(id(node))
+        # Handle tuple unpacking: (a, b) = ...
+        if isinstance(node, (cst.Tuple, cst.List)):
+            for elem in node.elements:
+                if isinstance(elem, cst.Element):
+                    self._mark_target(elem.value)
+
+    def leave_Name(self, original_node: cst.Name,
+                   updated_node: cst.Name) -> cst.BaseExpression:
+        name = updated_node.value
+        if not name.startswith("in_") or name == "in_":
+            return updated_node
+        # Skip assignment targets.
+        if id(original_node) in self._assignment_target_ids:
+            return updated_node
+        # Skip kwarg keywords (LHS of '=' in a call) — must stay bare Name.
+        if id(original_node) in self._kwarg_keyword_ids:
+            return updated_node
+        # Skip if locally defined in the current scope.
+        if self._local_in_names_stack and name in self._local_in_names_stack[-1]:
+            return updated_node
+        # Rewrite: drop the `in_` prefix, build config.<rest>.
+        return cst.Attribute(value=cst.Name("config"), attr=cst.Name(name[3:]))
+
+
+# --- 15. `results.publish()` (bare) → `results.publish(out_X=out_X, ...)` ----
+
+class RewriteOutputPublish(cst.CSTTransformer):
+    """Rewrite bare `results.publish()` calls to forward all `out_*` names
+    assigned earlier in the enclosing function body (including nested blocks).
+
+    Python scope rules: variables assigned inside loops/if-blocks persist after
+    them, so a `for` loop's `out_a` assignment is visible at any subsequent
+    `results.publish()` whether inside or outside the loop. Function definitions
+    introduce a new scope — their out_* assignments do NOT leak out.
+
+    Runs after ConvertPublishResult.
+    """
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef,
+                          updated_node: cst.FunctionDef) -> cst.FunctionDef:
+        # Each function has its own out_names accumulator.
+        out_names: list[str] = []
+        new_body = self._rewrite_block(updated_node.body, out_names)
+        return updated_node.with_changes(body=new_body)
+
+    def _rewrite_block(self, block: cst.IndentedBlock,
+                       out_names: list[str]) -> cst.IndentedBlock:
+        new_statements: list[cst.BaseStatement] = []
+        for stmt in block.body:
+            new_stmt = self._rewrite_statement(stmt, out_names)
+            new_statements.append(new_stmt)
+        return block.with_changes(body=tuple(new_statements))
+
+    def _rewrite_statement(self, stmt: cst.BaseStatement,
+                           out_names: list[str]) -> cst.BaseStatement:
+        # Simple statement line: collect out_* assignments + rewrite any publish call.
+        if isinstance(stmt, cst.SimpleStatementLine):
+            for sub in stmt.body:
+                if isinstance(sub, cst.Assign):
+                    for target in sub.targets:
+                        self._collect_target_names(target.target, out_names)
+            return self._rewrite_publish_in_statement(stmt, out_names)
+
+        # Compound statements with nested IndentedBlocks — recurse.
+        if isinstance(stmt, cst.For):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_orelse = (cst.Else(body=self._rewrite_block(stmt.orelse.body, out_names))
+                          if stmt.orelse and isinstance(stmt.orelse.body, cst.IndentedBlock)
+                          else stmt.orelse)
+            return stmt.with_changes(body=new_body, orelse=new_orelse)
+
+        if isinstance(stmt, cst.While):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_orelse = (cst.Else(body=self._rewrite_block(stmt.orelse.body, out_names))
+                          if stmt.orelse and isinstance(stmt.orelse.body, cst.IndentedBlock)
+                          else stmt.orelse)
+            return stmt.with_changes(body=new_body, orelse=new_orelse)
+
+        if isinstance(stmt, cst.If):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_orelse = self._rewrite_if_orelse(stmt.orelse, out_names) if stmt.orelse else None
+            return stmt.with_changes(body=new_body, orelse=new_orelse)
+
+        if isinstance(stmt, cst.Try):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_handlers = tuple(
+                h.with_changes(body=self._rewrite_block(h.body, out_names))
+                if isinstance(h.body, cst.IndentedBlock) else h
+                for h in stmt.handlers
+            )
+            new_orelse = (cst.Else(body=self._rewrite_block(stmt.orelse.body, out_names))
+                          if stmt.orelse and isinstance(stmt.orelse.body, cst.IndentedBlock)
+                          else stmt.orelse)
+            new_finally = (cst.Finally(body=self._rewrite_block(stmt.finalbody.body, out_names))
+                           if stmt.finalbody and isinstance(stmt.finalbody.body, cst.IndentedBlock)
+                           else stmt.finalbody)
+            return stmt.with_changes(body=new_body, handlers=new_handlers,
+                                     orelse=new_orelse, finalbody=new_finally)
+
+        if isinstance(stmt, cst.With):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            return stmt.with_changes(body=new_body)
+
+        if isinstance(stmt, cst.FunctionDef):
+            # Nested function: NEW scope. Its out_* assignments do not leak.
+            nested_out_names: list[str] = []
+            new_body = self._rewrite_block(stmt.body, nested_out_names)
+            return stmt.with_changes(body=new_body)
+
+        # ClassDef and other compound statements: leave alone for now.
+        return stmt
+
+    def _rewrite_if_orelse(self, orelse: cst.Else | cst.If | None,
+                            out_names: list[str]) -> cst.Else | cst.If | None:
+        if orelse is None:
+            return None
+        if isinstance(orelse, cst.If):
+            # elif chain — treat as another If.
+            return self._rewrite_statement(orelse, out_names)  # type: ignore[return-value]
+        if isinstance(orelse, cst.Else):
+            if isinstance(orelse.body, cst.IndentedBlock):
+                return cst.Else(body=self._rewrite_block(orelse.body, out_names))
+        return orelse
+
+    def _collect_target_names(self, target: cst.CSTNode,
+                              out_names: list[str]) -> None:
+        if isinstance(target, cst.Name):
+            if target.value.startswith("out_") and target.value not in out_names:
+                out_names.append(target.value)
+        elif isinstance(target, (cst.Tuple, cst.List)):
+            for elem in target.elements:
+                if isinstance(elem, cst.Element):
+                    self._collect_target_names(elem.value, out_names)
+
+    def _rewrite_publish_in_statement(self, stmt: cst.SimpleStatementLine,
+                                      out_names: list[str]) -> cst.SimpleStatementLine:
+        new_body: list[cst.BaseSmallStatement] = []
+        for sub in stmt.body:
+            replacement = self._maybe_rewrite_publish_call(sub, out_names)
+            new_body.append(replacement if replacement is not None else sub)
+        return stmt.with_changes(body=tuple(new_body))
+
+    def _maybe_rewrite_publish_call(self, sub: cst.BaseSmallStatement,
+                                    out_names: list[str]
+                                    ) -> cst.BaseSmallStatement | None:
+        if not isinstance(sub, cst.Expr) or not isinstance(sub.value, cst.Call):
+            return None
+        call = sub.value
+        func = call.func
+        if not (isinstance(func, cst.Attribute)
+                and isinstance(func.value, cst.Name)
+                and func.value.value == "results"
+                and isinstance(func.attr, cst.Name)
+                and func.attr.value == "publish"):
+            return None
+        if call.args:
+            return None
+        if not out_names:
+            return None
+        new_args = tuple(
+            cst.Arg(
+                value=cst.Name(name),
+                keyword=cst.Name(name),
+                equal=cst.AssignEqual(
+                    whitespace_before=cst.SimpleWhitespace(""),
+                    whitespace_after=cst.SimpleWhitespace("")),
+                comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                if i < len(out_names) - 1 else cst.MaybeSentinel.DEFAULT,
+            )
+            for i, name in enumerate(out_names)
+        )
+        return cst.Expr(value=call.with_changes(args=new_args))
+
+
+# --- 16. Board serials (RFEB_SN / RFHB_SN) → config.rfeb_sn / config.rfhb_sn -
+
+_BOARD_SERIAL_MAP = {
+    "RFEB_SN": "rfeb_sn",
+    "RFHB_SN": "rfhb_sn",
+}
+
+
+class RewriteBoardSerials(cst.CSTTransformer):
+    """Rewrite bare reads of RFEB_SN / RFHB_SN to config.rfeb_sn / config.rfhb_sn.
+
+    Skips assignment targets (`RFEB_SN = 'X'` defines a local).
+
+    Runs AFTER ConvertClassToTestFunction which strips `self.` prefixes.
+    Requires OpenFlowConfig to have `rfeb_sn` and `rfhb_sn` fields at runtime
+    (added in V1c-6).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._assignment_target_ids: set[int] = set()
+        # Track kwarg-keyword Name node ids — the LHS of '=' in a call kwarg
+        # must stay a bare Name (Attribute is invalid syntax there).
+        self._kwarg_keyword_ids: set[int] = set()
+
+    def visit_Arg(self, node: cst.Arg) -> None:
+        # Don't rewrite the keyword Name of a kwarg call (e.g. f(RFEB_SN=X)).
+        if isinstance(node.keyword, cst.Name):
+            self._kwarg_keyword_ids.add(id(node.keyword))
+
+    def visit_Assign(self, node: cst.Assign) -> None:
+        for target in node.targets:
+            self._mark_target(target.target)
+
+    def _mark_target(self, node: cst.CSTNode) -> None:
+        self._assignment_target_ids.add(id(node))
+        if isinstance(node, (cst.Tuple, cst.List)):
+            for elem in node.elements:
+                if isinstance(elem, cst.Element):
+                    self._mark_target(elem.value)
+
+    def leave_Name(self, original_node: cst.Name,
+                   updated_node: cst.Name) -> cst.BaseExpression:
+        name = updated_node.value
+        if name not in _BOARD_SERIAL_MAP:
+            return updated_node
+        if id(original_node) in self._assignment_target_ids:
+            return updated_node
+        # Skip kwarg keywords (LHS of '=' in a call) — must stay bare Name.
+        if id(original_node) in self._kwarg_keyword_ids:
+            return updated_node
+        return cst.Attribute(
+            value=cst.Name("config"),
+            attr=cst.Name(_BOARD_SERIAL_MAP[name]),
+        )

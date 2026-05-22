@@ -139,85 +139,39 @@ the engineer must:
 
 ## Manual cleanup of the migrated test file
 
-Open `tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py`. The migrator stripped
-the OpenTAP class layer but the test body still references inherited
-attributes (`self.in_*`, `self.out_*`, `self.RFEB_SN`, `self.RFHB_SN`,
-`self.PrintSummary`, `self.Get_Aux`, `self.Get_DMM`, `self.Setup_DMM`) that
-came from `U300_RFEngine_EVT_Base`. Address each:
+**V1c update (2026-05-22):** the migrator now handles steps 1, 2, 3, 5, and 8
+automatically. What used to be an 8-step manual checklist is now 3 remaining
+steps (4, 6, 7) — all genuine RF engineering judgment.
 
-### 1. Add a logger header
+Original 8 steps, with V1c status:
 
-The migrator emits `logger.info(...)` calls but does not declare the logger.
-Add at the top of the file (after the module docstring):
+| # | Step | V1c status |
+|---|---|---|
+| 1 | Add `import logging` + logger | ✅ Automated by `AddLoggingHeader` transformer |
+| 2 | Replace `self.in_*` → `config.*` | ✅ Automated by `RewriteInputAttrs` transformer |
+| 3 | Replace `self.out_*` + `PublishResult()` → locals + `results.publish(**)` | ✅ Automated by `RewriteOutputPublish` transformer (recurses into nested for/if/try blocks) |
+| 4 | Replace inherited helpers (`Setup_DMM`, `Get_DMM`, `Get_Aux`, `Print_Summary`) | ⚠️ Helpers now ported to `openflow.rfengine.evt_base` (V1c-7), but the migrated test still has bare `Setup_DMM()` calls. **Manual step:** add `from openflow.rfengine.evt_base import setup_dmm, get_dmm, get_aux` and rename calls (`Setup_DMM()` → `setup_dmm(dmms={"dmm_c": dmm_c, ...})`). See note below on the eight-DMM API. |
+| 5 | Replace `RFEB_SN`/`RFHB_SN` | ✅ Automated by `RewriteBoardSerials` transformer + `OpenFlowConfig.rfeb_sn`/`rfhb_sn` fields (V1c-6) |
+| 6 | Convert sweep loops to `@pytest.mark.parametrize` | ❌ **Manual.** Judgment call — only works cleanly for simple outer loops without per-iteration setup. |
+| 7 | Handle nested verdict logic (MPR-skip vs fail) | ❌ **Manual.** Pure RF engineering judgment; migrator can't infer test intent. |
+| 8 | Strip bare `except:` blocks | ✅ Automated by `StripBareExcept` transformer |
 
-```python
-import logging
+### Step 4 in detail — porting EVT base helpers
 
-logger = logging.getLogger(__name__)
-```
-
-### 2. Replace `in_*` references with `config.*` lookups
-
-The migrator strips the `in_band = property(String, "n78")` declarations and
-records them, but `self.in_band` reads in the body become bare `in_band` which
-Python can't resolve. For each `in_*` reference in the body, rewrite to use the
-`config` fixture:
+`openflow.rfengine.evt_base` exposes:
 
 ```python
-# Before: self.in_band
-# After:  config.band
+from openflow.rfengine.evt_base import setup_dmm, get_dmm, get_aux
 
-# Before: self.in_rfbw_Hz
-# After:  config.rfbw_Hz
+# In the test:
+setup_dmm(dmms={"dmm_c": dmm_c, "dmm_ibat": dmm_ibat, ...})  # configures each to current mode
+readings = get_dmm(dmms={"dmm_c": dmm_c, "dmm_ibat": dmm_ibat, ...})  # returns dict of out_* keys
+aux_readings = get_aux(dut)  # returns dict of dut auxiliary measurements
 ```
 
-(All the fields are already in the YAML — see `tests/configs/u300b0_evt.yaml`.)
+The migrated test currently has bare `Setup_DMM()` / `Get_DMM()` / `Get_Aux()` calls. Replace each with the imported function. The DMM dict shape matches the OpenTAP source (8 DMMs: `dmm_c`, `dmm_idd1v4`, `dmm_idd1v8`, `dmm_idd2v5`, `dmm_iapt`, `dmm_ibat`, `dmm_ifem1v2`, `dmm_ifem1v8`); pass only the ones your bench has wired up (missing entries are skipped).
 
-### 3. Replace `out_*` references with local variables
-
-The original test stored measurements as `self.out_tx_power_dBm` so
-`PublishResult()` could pick them up. After migration, just use local
-variables and pass them to `results.publish(...)`:
-
-```python
-# Before:
-#     self.out_tx_power_dBm = tx_power - deemb_rfeb - deemb_ant
-#     self.out_EVM_pct = self.cmw100.meas_NrTxEVM(use_cached=True)
-#     self.PublishResult()
-#
-# After:
-out_tx_power_dBm = tx_power - deemb_rfeb - deemb_ant
-out_EVM_pct = cmw100.meas_NrTxEVM(use_cached=True)
-results.publish(  # TODO[openflow-migrate] (resolved): choose values to publish
-    target_tx_power_dBm=target_tx_power,
-    out_tx_power_dBm=out_tx_power_dBm,
-    out_EVM_pct=out_EVM_pct,
-    out_modulation=modulation,
-)
-```
-
-### 4. Replace inherited setup helpers with inline code or pytest fixtures
-
-`self.Setup_DMM()`, `self.Get_Aux()`, `self.Get_DMM()`, `self.Print_Summary()`
-were defined on `U300_RFEngine_EVT_Base` (an OpenTAP-specific helper class we
-intentionally dropped). Two options:
-
-- **Option A** (recommended for V1b): inline the bodies of those helpers
-  directly into the test, or delete the calls if they're optional
-  instrumentation (e.g. `Print_Summary` mostly logs configuration).
-- **Option B**: port `U300_RFEngine_EVT_Base.py` into `openflow.rfengine.base`
-  and reintroduce the inheritance. Heavier; saves work if more tests will
-  follow the same pattern (V2).
-
-### 5. Replace `self.RFEB_SN`, `self.RFHB_SN` (board serials)
-
-These were `property(String, ...)` class-level inputs. After migration they
-should come from the YAML config. Either:
-
-- Add `rfeb_sn: str` and `rfhb_sn: str` fields to `OpenFlowConfig`, OR
-- Hard-code them at the top of the migrated test file for the bench session.
-
-### 6. Convert the sweep loops into `@pytest.mark.parametrize`
+### Step 6 in detail — Convert the sweep loops into `@pytest.mark.parametrize`
 
 The original Run() body had `for modulation in ["16QAM"]:` and
 `for target_tx_power in np.arange(-45, 28+1, 1.0):`. The cleanest pytest
@@ -235,7 +189,7 @@ def test_u300b0_rfeb_evt_tx_evm_power_sweep(
 
 Each iteration is now a separate test case in the report.
 
-### 7. Handle the nested verdict logic
+### Step 7 in detail — Handle the nested verdict logic
 
 The original test has:
 ```python
@@ -262,11 +216,11 @@ else:
         pytest.skip(f"Tx output power exceeds max with MPR — skipping verdict")
 ```
 
-### 8. Strip bare `except:` blocks
+### Step 8 — Strip bare `except:` blocks
 
-`pyftdi` and `RsCmw*` SDKs may raise specific exceptions. The original test
-caught everything with `except:`. Replace with explicit exception types where
-possible, or `except Exception as e:` with a logger note.
+✅ Automated by V1c — bare `except:` is rewritten to `except Exception:`.
+For tighter exception handling, the engineer may still want to specialize
+(e.g. `except pyvisa.errors.VisaIOError`).
 
 ## Bench-run command (after manual cleanup)
 
@@ -297,12 +251,20 @@ producing a record in `report.json` with measured `out_tx_power_dBm` and
 - [ ] One full sweep completes without crashing on a real bench.
 - [ ] Engineer signs off on a sample `report.json` matching expectations.
 
-## What V2 will smooth out
+## What V1c shipped (resolving steps 1, 2, 3, 5, 8 + helper port for step 4)
 
-- A second transformer in the migrator that rewrites `self.in_X` →
-  `config.X` and `self.out_X = …; self.PublishResult()` → local var +
-  populated `results.publish(...)` automatically (steps 2, 3 above).
-- Port `U300_RFEngine_EVT_Base` so inherited helpers come along (step 4).
-- A `RFEB_SN` / `RFHB_SN` field added to `OpenFlowConfig` (step 5).
-- A transformer that lifts loop bodies into `@pytest.mark.parametrize` (step 6).
-- A transformer that converts bare `except:` to explicit catches (step 8).
+All of these were originally listed as "V2 work" but landed in V1c:
+
+- ✅ `AddLoggingHeader` transformer (step 1)
+- ✅ `RewriteInputAttrs` transformer (step 2)
+- ✅ `RewriteOutputPublish` transformer with nested-block recursion (step 3)
+- ✅ Port of `U300_RFEngine_EVT_Base` helpers to `openflow.rfengine.evt_base` (step 4 — engineer still does the rename + import)
+- ✅ `RewriteBoardSerials` transformer + config fields (step 5)
+- ✅ `StripBareExcept` transformer (step 8)
+
+## What V2 will still smooth out
+
+- A transformer that rewrites `Setup_DMM()` → `setup_dmm(dmms=…)` calls to
+  fully automate step 4.
+- A transformer that lifts simple loop bodies into `@pytest.mark.parametrize` (step 6).
+- A transformer that adds `pytest.skip(...)` for known "should not have been measured" branches (step 7 — at least the common patterns).

@@ -54,6 +54,12 @@ class OpenFlowConfig(BaseModel):
     tx_dac_backoff_dBFS: float
     board_config: str
 
+    # Board serials — added in V1c. Optional with safe defaults so existing YAML
+    # without these fields continues to load. Used by Calibration_File lookups
+    # in the migrated tests (engineer fills these in for real bench runs).
+    rfeb_sn: str = ""
+    rfhb_sn: str = ""
+
     # External lookup tables (paths resolved relative to the config file)
     limits_path: Path
     deembedding_path: Path
