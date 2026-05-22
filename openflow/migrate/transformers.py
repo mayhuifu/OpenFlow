@@ -67,3 +67,40 @@ class StripOpenTapImports(cst.CSTTransformer):
         if not new_body:
             return RemovalSentinel.REMOVE
         return updated_node.with_changes(body=tuple(new_body))
+
+
+# --- 2. Strip @attribute(OpenTap.*) decorators --------------------------------
+
+class StripAttributeDecorators(cst.CSTTransformer):
+    """Remove ``@attribute(OpenTap.XYZ(...))`` decorators from any class or function."""
+
+    def _is_opentap_attribute_decorator(self, decorator: cst.Decorator) -> bool:
+        d = decorator.decorator
+        # decorator should be a Call of `attribute(OpenTap.something(...))`
+        if not isinstance(d, cst.Call):
+            return False
+        if not isinstance(d.func, cst.Name) or d.func.value != "attribute":
+            return False
+        if not d.args:
+            return False
+        inner = d.args[0].value
+        # inner is typically Call(func=Attribute(value=Name('OpenTap'), attr=Name('Display')), ...)
+        if not isinstance(inner, cst.Call):
+            return False
+        f = inner.func
+        if isinstance(f, cst.Attribute):
+            base = f.value
+            return isinstance(base, cst.Name) and base.value == "OpenTap"
+        return False
+
+    def leave_ClassDef(self, original_node: cst.ClassDef,
+                       updated_node: cst.ClassDef) -> cst.ClassDef:
+        kept = tuple(d for d in updated_node.decorators
+                     if not self._is_opentap_attribute_decorator(d))
+        return updated_node.with_changes(decorators=kept)
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef,
+                          updated_node: cst.FunctionDef) -> cst.FunctionDef:
+        kept = tuple(d for d in updated_node.decorators
+                     if not self._is_opentap_attribute_decorator(d))
+        return updated_node.with_changes(decorators=kept)
