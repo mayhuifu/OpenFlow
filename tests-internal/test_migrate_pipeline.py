@@ -51,3 +51,34 @@ def test_pipeline_renames_legacy_config_field_names():
     assert "conditions_limits_config" not in result.code
     assert "deembedding_config" not in result.code
     assert "calibration_file_config" not in result.code
+
+
+def test_pipeline_emits_class_name_constant():
+    """V1e: `self.__class__.__name__` must arrive as a runtime-safe
+    `CLASS_NAME` constant — no module-scope NameError waiting to bite."""
+    source = Path("tests-internal/fixtures/sample_opentap_tx_evm.py").read_text()
+    result = migrate_source(source)
+    # The dunder must be gone (illegal at module-function scope).
+    assert "__class__.__name__" not in result.code
+    # The constant must be present with the original class name.
+    assert 'CLASS_NAME = "U300B0_RFEB_EVT_TX_EVM_Power_Sweep"' in result.code
+
+
+def test_pipeline_rewrites_evt_helper_calls():
+    """V1e: bare-name EVT helper calls must arrive as their lowercase
+    module-level Python equivalents, with auto-injected import."""
+    source = Path("tests-internal/fixtures/sample_opentap_tx_evm.py").read_text()
+    result = migrate_source(source)
+    # Lowercase calls present.
+    assert "setup_dmm(dmms={})" in result.code
+    assert "get_dmm(dmms={})" in result.code
+    assert "get_aux(dut)" in result.code
+    # CamelCase originals gone.
+    assert "Setup_DMM(" not in result.code
+    assert "Get_DMM(" not in result.code
+    assert "Get_Aux(" not in result.code
+    # Auto-import injected with all three names.
+    assert "from openflow.rfengine.evt_base import" in result.code
+    assert "setup_dmm" in result.code
+    assert "get_dmm" in result.code
+    assert "get_aux" in result.code
