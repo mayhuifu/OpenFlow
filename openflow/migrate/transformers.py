@@ -453,3 +453,53 @@ class ConvertLogCalls(cst.CSTTransformer):
             value=cst.Name("logger"),
             attr=cst.Name(_LOG_LEVEL_MAP[level_name]))
         return updated_node.with_changes(func=new_func)
+
+
+# --- 9. self.PublishResult() → results.publish() + TODO -----------------------
+
+class ConvertPublishResult(cst.CSTTransformer):
+    """Replace ``PublishResult()`` calls with a ``results.publish()`` stub + TODO."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def leave_SimpleStatementLine(
+            self, original_node: cst.SimpleStatementLine,
+            updated_node: cst.SimpleStatementLine
+    ) -> cst.SimpleStatementLine:
+        new_body: list[cst.BaseSmallStatement] = []
+        replaced_here = False
+        for stmt in updated_node.body:
+            replacement = self._maybe_replace(stmt)
+            if replacement is not None:
+                replaced_here = True
+                new_body.append(replacement)
+            else:
+                new_body.append(stmt)
+        if not replaced_here:
+            return updated_node
+        comment = cst.Comment(
+            "# TODO[openflow-migrate]: choose which out_* values to publish")
+        trailing = cst.TrailingWhitespace(
+            whitespace=cst.SimpleWhitespace("  "),
+            comment=comment,
+            newline=cst.Newline())
+        return updated_node.with_changes(body=tuple(new_body),
+                                         trailing_whitespace=trailing)
+
+    def _maybe_replace(self, stmt: cst.BaseSmallStatement) -> cst.BaseSmallStatement | None:
+        if not isinstance(stmt, cst.Expr) or not isinstance(stmt.value, cst.Call):
+            return None
+        call = stmt.value
+        name: str | None = None
+        if isinstance(call.func, cst.Name):
+            name = call.func.value
+        elif isinstance(call.func, cst.Attribute) and isinstance(call.func.attr, cst.Name):
+            name = call.func.attr.value
+        if name != "PublishResult":
+            return None
+        new_call = cst.Call(
+            func=cst.Attribute(value=cst.Name("results"), attr=cst.Name("publish")),
+            args=(),
+        )
+        return cst.Expr(value=new_call)
