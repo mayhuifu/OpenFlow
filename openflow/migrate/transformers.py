@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import libcst as cst
 from libcst import RemovalSentinel
+from libcst import matchers  # noqa: F401
 
 
 def transform(source: str, *transformers: cst.CSTTransformer) -> str:
@@ -104,3 +105,73 @@ class StripAttributeDecorators(cst.CSTTransformer):
         kept = tuple(d for d in updated_node.decorators
                      if not self._is_opentap_attribute_decorator(d))
         return updated_node.with_changes(decorators=kept)
+
+
+# --- 3. Extract `Testcase_ID = property(String, "X-Y-Z")...` to module-level ---
+
+class ExtractTestcaseId(cst.CSTTransformer):
+    """Lift Testcase_ID class attribute into a module-level TESTCASE_ID constant."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._extracted_id: str | None = None
+
+    def leave_ClassDef(self, original_node: cst.ClassDef,
+                       updated_node: cst.ClassDef) -> cst.ClassDef:
+        new_body: list[cst.BaseStatement] = []
+        for stmt in updated_node.body.body:
+            if self._is_testcase_id_assign(stmt):
+                self._extracted_id = self._extract_id_string(stmt)
+                continue  # drop from class body
+            new_body.append(stmt)
+        return updated_node.with_changes(
+            body=updated_node.body.with_changes(body=tuple(new_body)))
+
+    def leave_Module(self, original_node: cst.Module,
+                     updated_node: cst.Module) -> cst.Module:
+        if self._extracted_id is None:
+            return updated_node
+        module_stmt = cst.parse_statement(
+            f'TESTCASE_ID = "{self._extracted_id}"\n')
+        body = list(updated_node.body)
+        insert_at = self._first_non_metadata_index(body)
+        body.insert(insert_at, module_stmt)
+        return updated_node.with_changes(body=tuple(body))
+
+    @staticmethod
+    def _is_testcase_id_assign(stmt: cst.BaseStatement) -> bool:
+        if not isinstance(stmt, cst.SimpleStatementLine):
+            return False
+        for sub in stmt.body:
+            if isinstance(sub, cst.Assign):
+                for tgt in sub.targets:
+                    t = tgt.target
+                    if isinstance(t, cst.Name) and t.value == "Testcase_ID":
+                        return True
+        return False
+
+    @staticmethod
+    def _extract_id_string(stmt: cst.BaseStatement) -> str:
+        # Find a quoted string-literal arg containing a hyphen (looks like a testcase ID).
+        for node in cst.matchers.findall(stmt, cst.matchers.SimpleString()):
+            text = node.value  # includes quotes
+            stripped = text[1:-1] if len(text) >= 2 and text[0] in "\"'" else text
+            if "-" in stripped:
+                return stripped
+        return "UNKNOWN-TESTCASE-ID"
+
+    @staticmethod
+    def _first_non_metadata_index(body: list[cst.BaseStatement]) -> int:
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, cst.SimpleStatementLine):
+                if all(isinstance(s, (cst.Import, cst.ImportFrom)) for s in stmt.body):
+                    continue
+                first = stmt.body[0] if stmt.body else None
+                if isinstance(first, cst.Expr) and isinstance(first.value, cst.SimpleString):
+                    continue
+                if isinstance(first, cst.Assign) and len(first.targets) == 1:
+                    t = first.targets[0].target
+                    if isinstance(t, cst.Name) and t.value.startswith("__"):
+                        continue
+            return i
+        return len(body)
