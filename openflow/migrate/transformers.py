@@ -1065,3 +1065,99 @@ class RewriteConfigNames(cst.CSTTransformer):
         if new is None:
             return updated_node
         return updated_node.with_changes(attr=cst.Name(new))
+
+
+# --- 18. Capture original class name (Phase 1 metadata only) ----------------
+
+class CaptureClassName(cst.CSTTransformer):
+    """Metadata-only Phase 1 transformer. Records the original OpenTAP
+    TestStep class name so ``RewriteClassDunderName`` can emit a
+    module-level ``CLASS_NAME`` constant in Phase 2.
+
+    Does not modify the tree.
+
+    Captures the *first* class declaration seen — every OpenTAP-Python
+    TestStep file we've encountered defines exactly one TestStep class.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.class_name: str | None = None
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> bool:
+        if self.class_name is None:
+            self.class_name = node.name.value
+        return True
+
+
+# --- 19. __class__.__name__ → CLASS_NAME constant ---------------------------
+
+class RewriteClassDunderName(cst.CSTTransformer):
+    """Rewrite ``__class__.__name__`` to a bare ``CLASS_NAME`` Name and
+    inject a module-level ``CLASS_NAME = \"<OriginalClass>\"`` assignment
+    if any rewrite happened.
+
+    Background: OpenTAP TestStep ``Run()`` methods commonly call
+    ``self.__class__.__name__`` to look up their test ID in a conditions
+    table. After ConvertClassToTestFunction strips both the class and
+    the ``self.`` prefix, what's left is a bare ``__class__.__name__``
+    reference inside a module-level function — which is a NameError at
+    runtime (the implicit ``__class__`` cell only exists inside class
+    methods).
+
+    The original class name is captured during Phase 1 by
+    ``CaptureClassName`` and passed in via the constructor. If
+    ``class_name`` is ``None`` (no class was seen in the source), this
+    transformer no-ops and leaves the dunder in place — the engineer
+    will see the NameError and can investigate.
+
+    Pipeline position: Phase 2, after ConvertClassToTestFunction.
+    """
+
+    def __init__(self, class_name: str | None) -> None:
+        super().__init__()
+        self.class_name = class_name
+        self._rewrites_happened = False
+
+    def leave_Attribute(self, original_node: cst.Attribute,
+                        updated_node: cst.Attribute) -> cst.BaseExpression:
+        if self.class_name is None:
+            return updated_node
+        # Match `__class__.__name__`: Attribute(value=Name("__class__"),
+        # attr=Name("__name__")).
+        if not (isinstance(updated_node.value, cst.Name)
+                and updated_node.value.value == "__class__"
+                and updated_node.attr.value == "__name__"):
+            return updated_node
+        self._rewrites_happened = True
+        return cst.Name("CLASS_NAME")
+
+    def leave_Module(self, original_node: cst.Module,
+                     updated_node: cst.Module) -> cst.Module:
+        if not self._rewrites_happened or self.class_name is None:
+            return updated_node
+        # Inject `CLASS_NAME = "<OriginalClass>"` after existing imports +
+        # __dunder__ metadata.
+        const_stmt = cst.parse_statement(
+            f'CLASS_NAME = "{self.class_name}"\n')
+        body = list(updated_node.body)
+        insert_at = self._first_non_metadata_index(body)
+        body.insert(insert_at, const_stmt)
+        return updated_node.with_changes(body=tuple(body))
+
+    @staticmethod
+    def _first_non_metadata_index(body: list[cst.BaseStatement]) -> int:
+        """Find first index past module docstring + existing imports + __dunder__ metadata."""
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, cst.SimpleStatementLine):
+                if all(isinstance(s, (cst.Import, cst.ImportFrom)) for s in stmt.body):
+                    continue
+                first = stmt.body[0] if stmt.body else None
+                if isinstance(first, cst.Expr) and isinstance(first.value, cst.SimpleString):
+                    continue  # docstring
+                if isinstance(first, cst.Assign) and len(first.targets) == 1:
+                    t = first.targets[0].target
+                    if isinstance(t, cst.Name) and t.value.startswith("__"):
+                        continue  # __author__, __version__, etc.
+            return i
+        return len(body)
