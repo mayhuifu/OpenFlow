@@ -54,6 +54,29 @@ class StorageConfig(BaseModel):
     sqlite_path: Path | None = None
 
 
+class BenchConfig(BaseModel):
+    """V5a: bench reservation policy.
+
+    ``check_reservations``: when True, the pytest plugin verifies at
+    sessionstart that every instrument resource string in the YAML is
+    either unreserved or reserved by the current engineer. Fails fast
+    on conflict (unless ``--openflow-force-reserve`` is passed).
+
+    ``store``: path or DSN passed to the reservation store. Defaults
+    to ``~/.openflow/reservations.json`` (local file-locked JSON). For
+    shared labs, set to a ``sqlite://`` or ``postgresql://`` URL.
+
+    ``user``: identity recorded when the plugin auto-reserves resources
+    on behalf of a test session. Defaults to ``$OPENFLOW_USER`` /
+    ``$USER`` at runtime.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    check_reservations: bool = False
+    store: str | None = None
+    user: str | None = None
+
+
 class DutConfig(BaseModel):
     """DUT configuration. type='stub' means the generic Dut base; concrete subclasses
     in V1b are 'u300' (DUT_U300) and 'ft2232h' (DUT_FT2232h_V03)."""
@@ -109,6 +132,11 @@ class OpenFlowConfig(BaseModel):
     # V4: persistent results (SQLite default, optional PostgreSQL).
     # storage.persist defaults to False during the v0.9.x beta period.
     storage: StorageConfig = Field(default_factory=StorageConfig)
+
+    # V5a: bench reservation. check_reservations defaults to False to
+    # preserve V1-V4 behavior for engineers who haven't opted into the
+    # coordination layer.
+    bench: BenchConfig = Field(default_factory=BenchConfig)
 
 
 # --- YAML loader ---------------------------------------------------------------
