@@ -14,6 +14,9 @@ dependencies = [
     "libcst>=1.1",
     "numpy>=1.26",
     "pandas>=2.0",
+    # FTDI SPI host-bridge driver for DUT_FT2232H (V1b). Real hardware path
+    # uses pyftdi over USB; emulation mode bypasses all I/O.
+    "pyftdi>=0.55",
     # R&S Python SDK for CMW100 control (replaces raw PyVISA SCPI).
     # Required at runtime by openflow.instruments.cmw100_a / cmw100_g.
     # Note: PyPI distribution name for the Base package is hyphenated ("rscmw-base"),
@@ -74,6 +77,8 @@ ignore = ["E501"]
 "openflow/rfengine/calibration_file.py" = ["RUF013", "E711", "B007", "F841", "B904", "B905"]
 "openflow/rfengine/deembedding.py" = ["RUF013", "E711", "B007"]
 "openflow/rfengine/testconditions_limits.py" = ["RUF013", "E711"]
+# Ported FTDI SPI driver: legacy patterns preserved verbatim.
+"openflow/dut/ft2232h.py" = ["E711", "E722", "F841", "B007", "B904", "UP031", "UP039"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -93,6 +98,7 @@ module = [
     "RsCmwNrFr1Meas", "RsCmwNrFr1Meas.*",
     "rscmw_base", "rscmw_base.*",
     "skrf", "skrf.*",
+    "pyftdi", "pyftdi.*",
 ]
 ignore_missing_imports = true
 
@@ -106,6 +112,8 @@ module = [
     "openflow.rfengine.deembedding",
     "openflow.rfengine.testconditions_limits",
     "openflow.rfengine.calibration_file",
+    "openflow.dut.ft2232h",
+    "openflow.dut.u300",
 ]
 ignore_errors = true
 

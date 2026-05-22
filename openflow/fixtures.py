@@ -48,9 +48,28 @@ def cmw100(config: OpenFlowConfig) -> Generator[CMW100, None, None]:
 
 @pytest.fixture(scope="session")
 def dut(config: OpenFlowConfig) -> Dut:
-    """V1a: returns the Dut base class. V1b will swap in the concrete DUT_U300."""
-    _ = config  # keep dep so dut waits on config resolution
-    d = Dut()
+    """Instantiate the concrete DUT class selected by config.dut.type.
+
+    Defaults to the base Dut (V1a behavior). Concrete subclasses currently
+    supported: 'u300' (DUT_U300) and 'ft2232h' (DUT_FT2232h_V03). Lazy imports
+    avoid pulling pyftdi / numpy into the import path of unrelated tests.
+    """
+    dut_type = config.dut.type
+    d: Dut
+    if dut_type == "u300":
+        from openflow.dut.u300 import DUT_U300
+        d = DUT_U300()
+        d.emulation = config.dut.emulation
+    elif dut_type == "ft2232h":
+        from openflow.dut.ft2232h import DUT_FT2232h_V03
+        d = DUT_FT2232h_V03()  # type: ignore[no-untyped-call]
+        d.emulation = config.dut.emulation
+        if config.dut.ftdi_address:
+            d.adress = config.dut.ftdi_address  # (sic — typo preserved from source)
+        if config.dut.reg_map_file:
+            d.reg_map_file = config.dut.reg_map_file
+    else:
+        d = Dut()
     d.open()
     return d
 

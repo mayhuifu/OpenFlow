@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, python-v1]
+    branches: [main, python-v1, v1b-implementation]
   pull_request:
 
 jobs:
