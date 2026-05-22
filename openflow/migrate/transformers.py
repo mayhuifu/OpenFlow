@@ -377,3 +377,48 @@ class ConvertClassToTestFunction(cst.CSTTransformer):
                 and updated_node.value.value == "self"):
             return updated_node.attr
         return updated_node
+
+
+# --- 7. UpgradeVerdict(OpenTap.Verdict.Pass|Fail) → no-op / assert False ------
+
+class ConvertVerdictCalls(cst.CSTTransformer):
+    """Rewrite ``UpgradeVerdict(OpenTap.Verdict.X)`` calls."""
+
+    def leave_SimpleStatementLine(
+            self, original_node: cst.SimpleStatementLine,
+            updated_node: cst.SimpleStatementLine
+    ) -> cst.SimpleStatementLine:
+        new_body: list[cst.BaseSmallStatement] = []
+        for stmt in updated_node.body:
+            replacement = self._rewrite(stmt)
+            new_body.append(replacement if replacement is not None else stmt)
+        return updated_node.with_changes(body=tuple(new_body))
+
+    def _rewrite(self, stmt: cst.BaseSmallStatement) -> cst.BaseSmallStatement | None:
+        if not isinstance(stmt, cst.Expr) or not isinstance(stmt.value, cst.Call):
+            return None
+        call = stmt.value
+        is_match = False
+        if isinstance(call.func, cst.Name) and call.func.value == "UpgradeVerdict":
+            is_match = True
+        elif (isinstance(call.func, cst.Attribute)
+              and isinstance(call.func.attr, cst.Name)
+              and call.func.attr.value == "UpgradeVerdict"):
+            is_match = True
+        if not is_match or not call.args:
+            return None
+        arg = call.args[0].value
+        verdict = self._verdict_name(arg)
+        if verdict == "Pass":
+            return cst.Pass()
+        if verdict in ("Fail", "Error", "Aborted", "Inconclusive"):
+            return cst.Assert(
+                test=cst.Name("False"),
+                msg=cst.SimpleString(f'"verdict {verdict}"'))
+        return None
+
+    @staticmethod
+    def _verdict_name(node: cst.CSTNode) -> str | None:
+        if isinstance(node, cst.Attribute) and isinstance(node.attr, cst.Name):
+            return node.attr.value
+        return None
