@@ -121,8 +121,8 @@ then continues with the bring-up sequence above.
 | **v1** | Framework + AST migrator + Tx EVM Power Sweep ported + real CMW100/DMM/DUT_U300/FT2232H drivers | [v1 design](./docs/superpowers/specs/2026-05-22-openflow-v1-design.md) | [v1a plan](./docs/superpowers/plans/2026-05-22-openflow-v1a.md) | ✅ Shipped (v0.4.0) — V1a + V1b + V1c + V1d + V1e + V1f |
 | **v2** | Bulk migration of the remaining U300 EVT suite + HTML report renderer + 2 more migrator transformers | [v2 design](./docs/superpowers/specs/2026-05-22-openflow-v2-design.md) | [v2 plan](./docs/superpowers/plans/2026-05-22-openflow-v2.md) | 📋 Planned — engineer-input needed for source files |
 | **v3** | Real driver ports for SG / SA / WFG (DMM already shipped in V1f) | [v3 design](./docs/superpowers/specs/2026-05-22-openflow-v3-design.md) | [v3 plan](./docs/superpowers/plans/2026-05-22-openflow-v3.md) | 📋 Planned |
-| **v4** | Persistent results — SQLite default, optional PostgreSQL; trend-analysis CLI | [v4 design](./docs/superpowers/specs/2026-05-22-openflow-v4-design.md) | _deferred until V3 ships_ | 🔭 Vision spec only |
-| **v5** | Lab orchestration — bench reservation, multi-DUT parallel runs, read-only web dashboard | [v5 design](./docs/superpowers/specs/2026-05-22-openflow-v5-design.md) | _deferred until V4 ships_ | 🔭 Vision spec only |
+| **v4** | Persistent results — SQLite default, optional PostgreSQL; trend-analysis CLI | [v4 design](./docs/superpowers/specs/2026-05-22-openflow-v4-design.md) | [v4 plan](./docs/superpowers/plans/2026-05-22-openflow-v4.md) | 📋 Planned (gated on V3 bench feedback) |
+| **v5** | Lab orchestration — bench reservation, multi-DUT parallel runs, read-only web dashboard | [v5 design](./docs/superpowers/specs/2026-05-22-openflow-v5-design.md) | [v5 plan](./docs/superpowers/plans/2026-05-22-openflow-v5.md) | 📋 Planned (gated on V4 + team scale) |
 
 ## History
 
