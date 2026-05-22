@@ -44,3 +44,37 @@ class OpenFlowConfig(BaseModel):
     limits_path: Path
     deembedding_path: Path
     calibration_path: Path
+
+
+# --- YAML loader ---------------------------------------------------------------
+
+import yaml
+from pydantic import ValidationError
+
+
+def load_config(path: Path) -> OpenFlowConfig:
+    """Load a YAML config file and resolve relative *_path fields against its directory."""
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"OpenFlow config not found: {path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+
+    try:
+        cfg = OpenFlowConfig.model_validate(raw)
+    except ValidationError as e:
+        raise ValueError(f"Invalid config file {path}:\n{e}") from e
+
+    base = path.parent.resolve()
+    cfg = cfg.model_copy(update={
+        "limits_path": _resolve(base, cfg.limits_path),
+        "deembedding_path": _resolve(base, cfg.deembedding_path),
+        "calibration_path": _resolve(base, cfg.calibration_path),
+    })
+    return cfg
+
+
+def _resolve(base: Path, relative_or_abs: Path) -> Path:
+    p = Path(relative_or_abs)
+    return p.resolve() if p.is_absolute() else (base / p).resolve()
