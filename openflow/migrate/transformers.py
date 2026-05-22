@@ -1,9 +1,13 @@
 """libcst transformers that convert an OpenTAP-Python test source into a pytest test."""
 from __future__ import annotations
 
+import re
+
 import libcst as cst
-from libcst import RemovalSentinel
-from libcst import matchers  # noqa: F401
+from libcst import (
+    RemovalSentinel,
+    matchers,  # noqa: F401
+)
 
 
 def transform(source: str, *transformers: cst.CSTTransformer) -> str:
@@ -296,8 +300,6 @@ class ConvertInputProperties(cst.CSTTransformer):
 
 # --- 6. Convert TestStep class -> module-level test_<snake>() function --------
 
-import re
-
 
 def _to_snake_case(name: str) -> str:
     # If the input already has underscores (typical for OpenTAP test classes
@@ -342,7 +344,7 @@ class ConvertClassToTestFunction(cst.CSTTransformer):
             body_statements = body_statements[1:]
         new_block = run_body.with_changes(body=tuple(body_statements))
         # Build the new test function signature.
-        fixture_names = list(self.instrument_fixtures) + ["config", "results"]
+        fixture_names = [*self.instrument_fixtures, "config", "results"]
         params = cst.Parameters(params=tuple(
             cst.Param(name=cst.Name(value=n)) for n in fixture_names
         ))

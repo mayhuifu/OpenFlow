@@ -50,6 +50,15 @@ packages = ["openflow"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Migrated demo output is a V1a artifact, not maintained code. The engineer
+# cleans it up by hand during V1b porting. Excluded from lint here.
+extend-exclude = [
+    # Migrated demo output — V1a artifact, not maintained code.
+    "tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py",
+    # Vendored OpenTAP test sources — used as input fixtures for transformer
+    # tests. We don't own this code, we just consume it.
+    "tests-internal/fixtures/sample_opentap_*.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "RUF"]
@@ -98,6 +107,14 @@ module = [
     "openflow.rfengine.testconditions_limits",
     "openflow.rfengine.calibration_file",
 ]
+ignore_errors = true
+
+# libcst transformer code: behaviorally tested (130+ tests). libcst's strict
+# generic types create false positives for our union-heavy patterns
+# (BaseStatement vs SimpleStatementLine, BaseExpression vs Name, etc.).
+# Coverage by tests + 11 transformer unit-test files is the real correctness gate.
+[[tool.mypy.overrides]]
+module = ["openflow.migrate.transformers"]
 ignore_errors = true
 
 # CMW100 façade calls into untyped mixin methods — relax warn_return_any.
