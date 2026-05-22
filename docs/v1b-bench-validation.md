@@ -7,6 +7,110 @@ real U300 RFIC on the FTDI2232H bridge and get plausible verdicts.
 This file walks through the manual cleanup that connects V1b's mechanical ports
 to a working bench run.
 
+## Bench machine setup (first time)
+
+### 1. Install `uv` (one-time per machine)
+
+OpenFlow uses [`uv`](https://docs.astral.sh/uv/) to manage Python + dependencies
+deterministically from `pyproject.toml` + `uv.lock`.
+
+**macOS / Linux:**
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Confirm with `uv --version` (expect `uv 0.4+` or newer).
+
+### 2. Clone the repo
+
+```sh
+git clone https://github.com/mayhuifu/OpenFlow.git
+cd OpenFlow
+```
+
+Everything below runs from the repo root (the directory containing
+`pyproject.toml`).
+
+### 3. Sync dependencies
+
+```sh
+uv sync
+```
+
+This reads `pyproject.toml` + `uv.lock` and creates a `.venv/` directory with
+all pinned dependencies. First run downloads ~700 MB (the R&S Python SDK
+packages are large).
+
+**You do NOT need to activate `.venv/` manually.** Always invoke commands
+through `uv run <command>` — uv finds the project venv automatically.
+
+### 4. OS-specific notes for native dependencies
+
+- **`pyftdi`** (USB SPI control for the FTDI2232H bridge):
+  - **macOS:** works out of the box; libusb is in the SDK.
+  - **Linux:** install `libusb-1.0-0` via your package manager
+    (`sudo apt install libusb-1.0-0` on Debian/Ubuntu). May also need
+    `udev` rules for the FTDI device:
+    ```sh
+    # /etc/udev/rules.d/11-ftdi.rules
+    SUBSYSTEM=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6010", MODE="0666"
+    ```
+    Then `sudo udevadm control --reload-rules && sudo udevadm trigger`.
+  - **Windows:** install the FTDI WinUSB driver via
+    [Zadig](https://zadig.akeo.ie/) (replaces the default VCP driver
+    for the FT2232H bulk endpoints). pyftdi docs explain.
+- **R&S Python SDK** (`rscmw-base`, `RsCmwGprfGen/Meas`, `RsCmwLte*`,
+  `RsCmwNrFr1Meas`): pure-Python wheels — install via `uv sync` succeeds on
+  any OS without extra setup. They open VISA sessions via the CMW100's own
+  TCP/IP socket interface; no separate VISA backend (NI-VISA / Keysight IO)
+  is required.
+- **`numpy` + `pandas`:** prebuilt wheels for all major OSes; no compilation.
+
+### 5. Confirm setup is good
+
+```sh
+uv run pytest tests-internal
+```
+
+**Expected:** `154 passed` (give or take a few as V1b/V2 work continues),
+~1 second runtime. If anything errors, the imports and dependency wiring are
+the most likely culprits — share the output with the team.
+
+Optionally also verify the migrated demo file is parseable:
+```sh
+uv run pytest tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py \
+  --openflow-config=tests/configs/u300b0_evt.yaml --collect-only
+```
+**Expected:** `1 test collected`.
+
+### 6. Running the migration CLI
+
+After `uv sync` the `openflow` CLI is available via `uv run`:
+
+```sh
+uv run openflow migrate /path/to/some_OpenTAP_test.py --out tests/test_some_new.py
+```
+
+(The `--out` defaults to alongside the source with a `test_` prefix if you
+omit it.)
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `uv: command not found` | uv not on PATH after install | Restart shell, or add `~/.local/bin` (Linux/macOS) / `%USERPROFILE%\.local\bin` (Windows) to PATH |
+| `uv sync` fails with `No matching distribution` for an `RsCmw*` package | Behind a corporate proxy that blocks pypi.org | Configure pip/uv proxy: `uv sync --index-url https://<your-mirror>/simple` or set `HTTPS_PROXY` |
+| `pyftdi.usbtools.UsbToolsError: Could not find any FTDI` on Linux | udev rules missing or user not in `plugdev` group | Apply the udev rules in step 4 + `sudo usermod -aG plugdev $USER` + log out/in |
+| `pytest` shows `ModuleNotFoundError: No module named 'openflow'` | Ran `pytest` directly instead of `uv run pytest` | Always prefix with `uv run` (or activate `.venv` manually if you prefer) |
+| Plugin discovery error: `openflow.plugin` module not loadable | Editable install out of date (rare) | `uv sync --reinstall` |
+
+---
+
 ## Status of the pieces
 
 | Component | V1b status | What's needed for a real bench run |
