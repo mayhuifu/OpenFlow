@@ -668,3 +668,73 @@ class StripBareExcept(cst.CSTTransformer):
             type=cst.Name("Exception"),
             whitespace_after_except=cst.SimpleWhitespace(" "),
         )
+
+
+# --- 13. Add `import logging` + `logger = logging.getLogger(__name__)` -------
+
+class AddLoggingHeader(cst.CSTTransformer):
+    """If the module contains any `logger.<level>(...)` calls but no logger setup,
+    inject the standard ``import logging`` + ``logger = logging.getLogger(__name__)``
+    near the top of the module (after existing imports / __dunder__ metadata)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._has_logger_calls = False
+        self._has_logger_assignment = False
+        self._has_logging_import = False
+
+    def visit_Call(self, node: cst.Call) -> None:
+        # Detect `logger.<anything>(...)` calls.
+        func = node.func
+        if (isinstance(func, cst.Attribute)
+                and isinstance(func.value, cst.Name)
+                and func.value.value == "logger"):
+            self._has_logger_calls = True
+
+    def visit_Assign(self, node: cst.Assign) -> None:
+        # Detect `logger = ...` at any level.
+        for target in node.targets:
+            if isinstance(target.target, cst.Name) and target.target.value == "logger":
+                self._has_logger_assignment = True
+
+    def visit_Import(self, node: cst.Import) -> None:
+        for alias in node.names:
+            if isinstance(alias.name, cst.Name) and alias.name.value == "logging":
+                self._has_logging_import = True
+
+    def leave_Module(self, original_node: cst.Module,
+                     updated_node: cst.Module) -> cst.Module:
+        if not self._has_logger_calls:
+            return updated_node
+        if self._has_logger_assignment and self._has_logging_import:
+            return updated_node
+
+        new_stmts: list[cst.BaseStatement] = []
+        if not self._has_logging_import:
+            new_stmts.append(cst.parse_statement("import logging\n"))
+        if not self._has_logger_assignment:
+            new_stmts.append(cst.parse_statement("logger = logging.getLogger(__name__)\n"))
+
+        body = list(updated_node.body)
+        insert_at = self._first_non_metadata_index(body)
+        for offset, stmt in enumerate(new_stmts):
+            body.insert(insert_at + offset, stmt)
+        return updated_node.with_changes(body=tuple(body))
+
+    @staticmethod
+    def _first_non_metadata_index(body: list[cst.BaseStatement]) -> int:
+        """Find first index past module docstring + existing imports + __dunder__ metadata."""
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, cst.SimpleStatementLine):
+                # All-imports line stays in the metadata region.
+                if all(isinstance(s, (cst.Import, cst.ImportFrom)) for s in stmt.body):
+                    continue
+                first = stmt.body[0] if stmt.body else None
+                if isinstance(first, cst.Expr) and isinstance(first.value, cst.SimpleString):
+                    continue  # docstring
+                if isinstance(first, cst.Assign) and len(first.targets) == 1:
+                    t = first.targets[0].target
+                    if isinstance(t, cst.Name) and t.value.startswith("__"):
+                        continue  # __author__, __version__, etc.
+            return i
+        return len(body)
