@@ -337,19 +337,33 @@ is the rough end-state** — no further versions planned unless new needs surfac
 
 ## 8. Open questions for the engineering reviewer
 
-1. **UMT_Instruments / UMT_DUTs / U300_RFEngine module status** (most important).
-   Are these classes plain Python (just SCPI wrappers and helpers), or do they
-   inherit from `OpenTap.Instrument` / `OpenTap.Resource` with the same
-   property/`@attribute` decoration as the test files? Answer determines whether
-   v1 imports them as-is or has to port them too. *Recommended action: send me
-   one representative file from each module (e.g. `UMT_Instruments/CMW100.py`,
-   `UMT_DUTs/UMT_DUT.py`) so we can confirm.*
+1. ~~**UMT_Instruments / UMT_DUTs / U300_RFEngine module status**~~ **(RESOLVED 2026-05-22).**
+   Engineer shared the full `UMT_Instruments 5/` folder. The four packages
+   (`UMT_Base`, `UMT_Instruments` ×80 drivers, `UMT_DUTs` ×~20 DUT variants,
+   `U300_RFEngine` with EVT/BU/DVT/CAL subdirs) are proper OpenTAP-published
+   Python packages (semver via `package.xml`, dependencies declared).
+   **Tangling is shallow and consistent across all sampled files:**
+   `from opentap import *`, `from System import …`, `@attribute(OpenTap.Display(...))`,
+   `property(<Type>, <default>).add_attribute(...)`, `self.log = Trace(self)`.
+   Stripping these yields ordinary Python. **CMW100 control uses R&S's
+   official Python SDK** (`RsCmwBase`, `RsCmwGprfGen`, `RsCmwGprfMeas`,
+   `RsCmwLteSig`, `RsCmwLteMeas`, `RsCmwNrFr1Meas`) — all on PyPI. The
+   `is_emulation` pattern (`if self.is_emulation: return <canned>`) is
+   universal — that's the established mock path V1a's CI uses. Decision:
+   **V1a ports only what the TX EVM demo touches** (4 CMW100A measurement
+   methods, 2 CMW100G generator methods, 3 RFEngine config loaders, the
+   `UMT_DUT` base). DUT_U300 + FT2232H + the remaining instruments stay
+   deferred to V1b / V2. *(All sampled files have OpenTAP versions 9.24.2+;
+   Python ≥3.7 supported.)*
 
-2. **CMW100 driver scope for v1.** The Tx EVM test uses
-   `cmw100.setup_NrTx(...)`, `cmw100.meas_NrTxAll()`, `cmw100.meas_NrTxPower(use_cached=True)`,
-   `cmw100.meas_NrTxEVM(use_cached=True)`. If existing `UMT_Instruments/CMW100.py`
-   is plain Python, we vendor it. If not, v1 needs to ship a CMW100 driver
-   covering at least those four methods — non-trivial but bounded.
+2. **CMW100 driver scope for V1a.** Confirmed scope: only the methods used by
+   the TX EVM Power Sweep demo. From `CMW100AMixin`: `setup_NrTx`,
+   `meas_NrTxAll`, `meas_NrTxPower(use_cached=True)`,
+   `meas_NrTxEVM(use_cached=True)` (~500 lines after stripping OpenTAP).
+   From `CMW100GMixin`: `set_arb_signal_rf`, `set_rf_power` (~200 lines).
+   Plus a `CMW100` façade class wrapping both mixins. The remaining ~55
+   measurement methods (LTE Tx ACLR/SEM/Spectrum-Flatness/Carrier-Leakage,
+   NR FFT/SA peak power, etc.) port on demand as more tests migrate (V2+).
 
 3. **Verdict-pattern conversion in the migrator.** Most cases are
    `if ok: UpgradeVerdict(Pass) else: UpgradeVerdict(Fail)` → `assert ok`. But

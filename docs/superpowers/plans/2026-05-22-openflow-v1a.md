@@ -4,9 +4,9 @@
 
 **Goal:** Ship the V1a milestone — a pytest-driven framework (`openflow` package) plus a libcst-based `openflow migrate` CLI that converts an OpenTAP-Python test to a bare-metal pytest test — with CI green on Windows + Ubuntu running lint, type-check, unit tests, and a mock-instrument integration test.
 
-**Architecture:** Single Python package `openflow` exposed as a pytest plugin. Fixtures provide a typed `OpenFlowConfig` (pydantic) loaded from YAML, an `Instrument`-derived `CMW100` (PyVISA), a `StubDUT` placeholder until UMT_DUT is resolved in V1b, and a per-test `ResultsPublisher` whose records are aggregated to one `report.json` via a `pytest_sessionfinish` hook. The migration sub-package is a libcst transformer pipeline; each of the ten transformers is independently unit-tested against before/after code snippets.
+**Architecture:** Single Python package `openflow` exposed as a pytest plugin. Fixtures provide a typed `OpenFlowConfig` (pydantic) loaded from YAML, a real `CMW100` driver (a port of CMW100.py + the TX-EVM-relevant slice of CMW100AMixin + CMW100GMixin from the existing UMT codebase, built on R&S's official Python SDK), stub modules for the other instruments the migrated test imports (WFG, DMM, PSU, OSC, SG, SA), ported RFEngine config loaders (`Deembedding`, `Testconditions_Limits`, `Calibration_File`), a `Dut` base class port of `UMT_DUT` (the U300 DUT subclass stays in V1b), and a per-test `ResultsPublisher` whose records are aggregated to one `report.json` via a `pytest_sessionfinish` hook. The migration sub-package is a libcst transformer pipeline; each transformer is independently unit-tested against before/after code snippets. All R&S SDK and instrument I/O are gated by an `is_emulation` flag so CI runs with zero real hardware.
 
-**Tech Stack:** Python 3.11 · uv · pytest · pydantic v2 · pyvisa + pyvisa-py · pyyaml · libcst · rich · ruff · mypy · GitHub Actions
+**Tech Stack:** Python 3.11 · uv · pytest · pydantic v2 · pyyaml · libcst · rich · ruff · mypy · GitHub Actions · R&S SDK (`RsCmwBase`, `RsCmwGprfGen`, `RsCmwGprfMeas`, `RsCmwLteSig`, `RsCmwLteMeas`, `RsCmwNrFr1Meas`)
 
 Spec: `docs/superpowers/specs/2026-05-22-openflow-v1-design.md`
 
@@ -25,19 +25,26 @@ openflow/
   config.py                                       # pydantic models + YAML loader
   results.py                                      # ResultsPublisher + session aggregation
   plugin.py                                       # pytest hooks: addoption, sessionfinish, markers
-  fixtures.py                                     # config, cmw100, dut, results fixtures
+  fixtures.py                                     # config, cmw100, dut, wfg, dmm_c, dmm_v, results fixtures
   instruments/
     __init__.py
     base.py                                       # Instrument ABC
-    cmw100.py                                     # CMW100 (real PyVISA-based driver)
-    mock_cmw100.py                                # in-process mock for the integration test
+    cmw100.py                                     # CMW100 façade — ports CMW100.py minus OpenTAP
+    cmw100_a.py                                   # CMW100AMixin — ports CMW100A.py (TX-EVM subset only)
+    cmw100_g.py                                   # CMW100GMixin — ports CMW100G.py (set_arb_signal_rf + set_rf_power)
+    stubs.py                                      # empty WFG/DMM/PSU/OSC/SG/SA classes for import resolution
   dut/
     __init__.py
-    stub.py                                       # placeholder until UMT_DUT resolves
+    base.py                                       # Dut — ports UMT_DUT minus OpenTAP
+  rfengine/
+    __init__.py
+    deembedding.py                                # ports U300_RFEngine/Deembedding.py
+    testconditions_limits.py                      # ports U300_RFEngine/Testconditions_Limits.py
+    calibration_file.py                           # ports U300_RFEngine/Calibration_File.py
   migrate/
     __init__.py
     cli.py                                        # `openflow migrate <path>` entrypoint
-    transformers.py                               # 10 libcst transformers
+    transformers.py                               # 11 libcst transformers (10 + RewriteImportPaths)
     pipeline.py                                   # orchestrates the transformer chain
     patterns.md                                   # human-readable migration cookbook
 
@@ -76,6 +83,7 @@ The `tests/` vs `tests-internal/` split matters: pytest discovers both by defaul
 - Create: `pyproject.toml`
 - Create: `.python-version`
 - Create: `openflow/__init__.py`
+- Create: `openflow/plugin.py` (empty placeholder — pyproject.toml declares it as a pytest11 entry point, which pytest loads eagerly; Task 10 fills it in)
 - Create: `openflow/instruments/__init__.py`
 - Create: `openflow/dut/__init__.py`
 - Create: `openflow/migrate/__init__.py`
@@ -174,6 +182,7 @@ Each of these is an empty file (or one-line docstring):
 ```bash
 mkdir -p openflow/instruments openflow/dut openflow/migrate tests tests-internal/fixtures
 touch openflow/__init__.py
+touch openflow/plugin.py  # placeholder — pyproject.toml's pytest11 entry point needs it to exist
 touch openflow/instruments/__init__.py
 touch openflow/dut/__init__.py
 touch openflow/migrate/__init__.py
@@ -212,8 +221,10 @@ collected 0 items
 
 - [ ] **Step 6: Commit**
 
+`.python-version` is gitignored (the Python virtualenv tooling pattern), so `git add .python-version` will silently skip it — that's fine; it's a local hint, not a repo artifact. The rest of the files are tracked.
+
 ```bash
-git add pyproject.toml .python-version uv.lock openflow tests tests-internal
+git add pyproject.toml uv.lock openflow tests tests-internal
 git commit -m "chore: scaffold openflow Python package with uv, pytest entry point"
 ```
 
