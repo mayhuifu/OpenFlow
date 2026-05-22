@@ -28,6 +28,7 @@ import numpy as np
 from openflow.dut.base import Dut  # DUT for SPI Write  # noqa: F401
 from openflow.instruments.cmw100 import CMW100  # noqa: F401
 from openflow.instruments.stubs import DMM, WFG  # noqa: F401
+from openflow.rfengine.base import initialize_tx
 from openflow.rfengine.calibration_file import Calibration_File
 from openflow.rfengine.deembedding import Deembedding
 from openflow.rfengine.evt_base import get_aux, get_dmm, setup_dmm
@@ -36,25 +37,6 @@ from openflow.rfengine.testconditions_limits import Testconditions_Limits
 logger = logging.getLogger(__name__)
 TESTCASE_ID = "U300B0-RFE-EVT-005"
 CLASS_NAME = "U300B0_RFEB_EVT_TX_EVM_Power_Sweep"  # was self.__class__.__name__
-
-
-def _initialize_tx(dut, target_tx_power: float, *, force_reboot: bool = False
-                   ) -> tuple[float, float]:
-    """V1b stub for the inherited ``initialize_tx`` helper from U300_RFEngine_Base.
-
-    The real helper resets the RFIC + RFFE and sweeps backoff to seat a starting
-    Tx power. Until that helper is ported, we return safe defaults: requested
-    power, zero backoff. Engineer should replace this with a real port before
-    running on the bench.
-    """
-    logger.warning("_initialize_tx: V1b stub returning (%.2f dBm, 0.0 dB backoff); "
-                   "real impl not yet ported", target_tx_power)
-    if force_reboot:
-        try:
-            dut.cmd_initialize(force_reboot=True)
-        except NotImplementedError as e:
-            logger.warning("dut.cmd_initialize(force_reboot=True) not implemented: %s", e)
-    return target_tx_power, 0.0
 
 
 def test_u300b0_rfeb_evt_tx_evm_power_sweep(cmw100, wfg, dut, dmm_c, dmm_v, config, results):
@@ -84,7 +66,7 @@ def test_u300b0_rfeb_evt_tx_evm_power_sweep(cmw100, wfg, dut, dmm_c, dmm_v, conf
     iq_gain_imbalance_dB, iq_phase_imbalance_deg = cal_file.get_iq_gain_phase_imbalance(dut.get_BandNumber(config.band), config.rfbw_Hz)
 
     # setup RFIC+RFFE
-    pwr, backoff = _initialize_tx(dut, target_tx_power=target_tx_power)
+    pwr, backoff = initialize_tx(dut, target_tx_power=target_tx_power)
 
     #
     # TESTCASE DESCRIPTION
@@ -108,7 +90,7 @@ def test_u300b0_rfeb_evt_tx_evm_power_sweep(cmw100, wfg, dut, dmm_c, dmm_v, conf
                     band=config.band)
         except Exception:
                 logger.warning("Unable to set BB signal, restart BB/RFIC")
-                pwr, backoff = _initialize_tx(dut, target_tx_power=target_tx_power, force_reboot=True)
+                pwr, backoff = initialize_tx(dut, target_tx_power=target_tx_power, force_reboot=True)
 
         # Print_Summary was an OpenTAP log helper; reduced to a log line during cleanup.
         logger.info("Sweeping modulation=%s band=%s rfbw_Hz=%s", modulation, config.band, config.rfbw_Hz)
@@ -134,7 +116,7 @@ def test_u300b0_rfeb_evt_tx_evm_power_sweep(cmw100, wfg, dut, dmm_c, dmm_v, conf
                             band=config.band)
             except Exception:
                 logger.warning("Unable to set BB signal, restart BB/RFIC")
-                pwr, backoff = _initialize_tx(dut, target_tx_power=target_tx_power, force_reboot=True)
+                pwr, backoff = initialize_tx(dut, target_tx_power=target_tx_power, force_reboot=True)
                 if pwr < -100:
                     return
                 continue
