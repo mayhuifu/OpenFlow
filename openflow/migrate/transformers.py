@@ -175,3 +175,69 @@ class ExtractTestcaseId(cst.CSTTransformer):
                         continue
             return i
         return len(body)
+
+
+# --- 4. Strip instrument `property(<Type>, None).add_attribute(...)` decls -----
+
+_INSTRUMENT_TYPES = {"CMW100", "WFG", "DMM", "UMT_DUT", "SG", "SA", "VSA", "PSU", "OSC"}
+
+
+def _outermost_call(node: cst.CSTNode) -> cst.Call | None:
+    """Walk an Attribute chain to its innermost Call.
+
+    E.g. property(...).add_attribute(...) has innermost Call = property(...).
+    """
+    while True:
+        if isinstance(node, cst.Call):
+            if isinstance(node.func, cst.Attribute):
+                node = node.func.value  # step into the value of the attribute
+                continue
+            return node
+        return None
+
+
+class ConvertInstrumentProperties(cst.CSTTransformer):
+    """Record `<name> = property(<InstrumentType>, None).add_attribute(...)` declarations
+    on each class, then remove them. The recorded names show up via
+    ``self.instrument_names`` for the pipeline to inject as test-function args."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.instrument_names: list[str] = []
+
+    def leave_ClassDef(self, original_node: cst.ClassDef,
+                       updated_node: cst.ClassDef) -> cst.ClassDef:
+        new_body: list[cst.BaseStatement] = []
+        for stmt in updated_node.body.body:
+            name = self._instrument_property_name(stmt)
+            if name is not None:
+                self.instrument_names.append(name)
+                continue
+            new_body.append(stmt)
+        return updated_node.with_changes(
+            body=updated_node.body.with_changes(body=tuple(new_body)))
+
+    @staticmethod
+    def _instrument_property_name(stmt: cst.BaseStatement) -> str | None:
+        if not isinstance(stmt, cst.SimpleStatementLine):
+            return None
+        for sub in stmt.body:
+            if not isinstance(sub, cst.Assign):
+                continue
+            if len(sub.targets) != 1:
+                continue
+            tgt = sub.targets[0].target
+            if not isinstance(tgt, cst.Name):
+                continue
+            rhs = sub.value
+            call = _outermost_call(rhs)
+            if call is None:
+                continue
+            if not (isinstance(call.func, cst.Name) and call.func.value == "property"):
+                continue
+            if not call.args:
+                continue
+            first_arg = call.args[0].value
+            if isinstance(first_arg, cst.Name) and first_arg.value in _INSTRUMENT_TYPES:
+                return tgt.value
+        return None
