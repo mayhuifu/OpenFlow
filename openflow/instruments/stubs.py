@@ -1,21 +1,34 @@
-"""V1a placeholder classes for instruments the migrated tests import but do not exercise.
+"""V1a placeholder classes for instruments the migrated tests import.
 
-Each class derives from `Instrument` so the migrated test's imports resolve at
-collection time. The real driver port for each lands in V2+ when the
-corresponding test migrates over. Calling any I/O method raises
-`NotImplementedError` with the class name and a pointer to V2.
+Each name here is either a placeholder ``_UnimplementedInstrument`` subclass
+(for instruments no migrated test currently exercises) or an alias to a real
+driver class (for instruments that V1f/V3 ported). The migrator emits
+``from openflow.instruments.stubs import <NAME>`` for every test that referenced
+``UMT_Instruments.<NAME>`` in OpenTAP, so we keep all the symbols available
+here.
 
-V1f exception: ``DMM`` is now a re-export alias of the real
-``DMMKeysight34461A`` driver. The migrator emits
-``from openflow.instruments.stubs import DMM`` for every test that referenced
-``UMT_Instruments.DMM`` in OpenTAP, and we keep the symbol available so those
-imports keep working — the underlying class is the real driver, not a stub.
-Engineers writing new tests should import ``DMMKeysight34461A`` directly.
+V1f / V3 alias targets:
+
+  DMM  -> DMMKeysight34461A     (V1f)
+  SG   -> RsSmw200a             (V3)
+  SA   -> KeysightN9020B        (V3 default; rs_fsw is the alternative)
+  WFG  -> Keysight33500B        (V3)
+
+Remaining stubs (no migrated test uses them yet — will be aliased when needed):
+
+  PSU  -> _UnimplementedInstrument
+  OSC  -> _UnimplementedInstrument
+
+Engineers writing new tests should import the concrete driver classes
+directly rather than going through these aliases.
 """
 from __future__ import annotations
 
 from openflow.instruments.base import Instrument
 from openflow.instruments.dmm_keysight import DMMKeysight34461A
+from openflow.instruments.sa_keysight_n9020b import KeysightN9020B
+from openflow.instruments.sg_rs_smw200a import RsSmw200a
+from openflow.instruments.wfg_keysight_33500b import Keysight33500B
 
 
 class _UnimplementedInstrument(Instrument):
@@ -38,14 +51,14 @@ class _UnimplementedInstrument(Instrument):
             f"{type(self).__name__}.query: V1a placeholder. Real port lands in V2.")
 
 
-class WFG(_UnimplementedInstrument):
-    """Waveform generator stub."""
-
-
-# V1f: DMM is the real Keysight 34461A driver, not a stub. The name is kept here
-# for backward compatibility with migrated tests that import `DMM` from this
-# module (the migrator emits that import line from UMT_Instruments.DMM rewrites).
+# V1f: DMM is the real Keysight 34461A driver, not a stub.
 DMM = DMMKeysight34461A
+
+# V3: SG/SA/WFG are now real drivers. The default SA model is Keysight N9020B;
+# engineers running an R&S FSW select it via instruments.sa.model: rs_fsw.
+SG = RsSmw200a
+SA = KeysightN9020B
+WFG = Keysight33500B
 
 
 class PSU(_UnimplementedInstrument):
@@ -54,11 +67,3 @@ class PSU(_UnimplementedInstrument):
 
 class OSC(_UnimplementedInstrument):
     """Oscilloscope stub."""
-
-
-class SG(_UnimplementedInstrument):
-    """Signal generator stub."""
-
-
-class SA(_UnimplementedInstrument):
-    """Spectrum analyzer stub."""
