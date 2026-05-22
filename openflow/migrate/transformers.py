@@ -956,3 +956,49 @@ class RewriteOutputPublish(cst.CSTTransformer):
             for i, name in enumerate(out_names)
         )
         return cst.Expr(value=call.with_changes(args=new_args))
+
+
+# --- 16. Board serials (RFEB_SN / RFHB_SN) → config.rfeb_sn / config.rfhb_sn -
+
+_BOARD_SERIAL_MAP = {
+    "RFEB_SN": "rfeb_sn",
+    "RFHB_SN": "rfhb_sn",
+}
+
+
+class RewriteBoardSerials(cst.CSTTransformer):
+    """Rewrite bare reads of RFEB_SN / RFHB_SN to config.rfeb_sn / config.rfhb_sn.
+
+    Skips assignment targets (`RFEB_SN = 'X'` defines a local).
+
+    Runs AFTER ConvertClassToTestFunction which strips `self.` prefixes.
+    Requires OpenFlowConfig to have `rfeb_sn` and `rfhb_sn` fields at runtime
+    (added in V1c-6).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._assignment_target_ids: set[int] = set()
+
+    def visit_Assign(self, node: cst.Assign) -> None:
+        for target in node.targets:
+            self._mark_target(target.target)
+
+    def _mark_target(self, node: cst.CSTNode) -> None:
+        self._assignment_target_ids.add(id(node))
+        if isinstance(node, (cst.Tuple, cst.List)):
+            for elem in node.elements:
+                if isinstance(elem, cst.Element):
+                    self._mark_target(elem.value)
+
+    def leave_Name(self, original_node: cst.Name,
+                   updated_node: cst.Name) -> cst.BaseExpression:
+        name = updated_node.value
+        if name not in _BOARD_SERIAL_MAP:
+            return updated_node
+        if id(original_node) in self._assignment_target_ids:
+            return updated_node
+        return cst.Attribute(
+            value=cst.Name("config"),
+            attr=cst.Name(_BOARD_SERIAL_MAP[name]),
+        )
