@@ -163,18 +163,25 @@ steps (4, 6, 7) — all genuine RF engineering judgment.
 not only strips `self.in_` prefixes but also renames the three legacy
 `*_config` file-path inputs to their `*_path` OpenFlowConfig field names.
 
-Original 8 steps, with V1c+V1d status:
+**V1e update (2026-05-22):** step 4 is now mostly automated — the migrator
+auto-renames `Setup_DMM`/`Get_DMM`/`Get_Aux` to their lowercase forms
+and injects the `from openflow.rfengine.evt_base import ...` line. A new
+step (auto-emitting a `CLASS_NAME` constant so `self.__class__.__name__`
+becomes runtime-safe) was added as item 9.
+
+Original 8 steps + V1e item 9, with current status:
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Add `import logging` + logger | ✅ Automated by `AddLoggingHeader` transformer |
+| 1 | Add `import logging` + logger | ✅ Automated by `AddLoggingHeader` transformer (V1c) |
 | 2 | Replace `self.in_*` → `config.*` (incl. `_config` → `_path` renames) | ✅ Automated by `RewriteInputAttrs` (V1c) + `RewriteConfigNames` (V1d) transformers |
-| 3 | Replace `self.out_*` + `PublishResult()` → locals + `results.publish(**)` | ✅ Automated by `RewriteOutputPublish` transformer (recurses into nested for/if/try blocks) |
-| 4 | Replace inherited helpers (`Setup_DMM`, `Get_DMM`, `Get_Aux`, `Print_Summary`) | ⚠️ Helpers now ported to `openflow.rfengine.evt_base` (V1c-7), but the migrated test still has bare `Setup_DMM()` calls. **Manual step:** add `from openflow.rfengine.evt_base import setup_dmm, get_dmm, get_aux` and rename calls (`Setup_DMM()` → `setup_dmm(dmms={"dmm_c": dmm_c, ...})`). See note below on the eight-DMM API. |
+| 3 | Replace `self.out_*` + `PublishResult()` → locals + `results.publish(**)` | ✅ Automated by `RewriteOutputPublish` transformer (V1c, recurses into nested for/if/try blocks) |
+| 4 | Replace inherited helpers (`Setup_DMM`, `Get_DMM`, `Get_Aux`) | ✅ Automated by `RewriteEvtHelperCalls` transformer (V1e). Calls are renamed + the `from openflow.rfengine.evt_base import ...` line is auto-injected. **Note:** the emitted call uses a placeholder `dmms={}` — the engineer fills in their bench's DMM dict. `Print_Summary` is intentionally NOT auto-rewritten (V2 candidate). |
 | 5 | Replace `RFEB_SN`/`RFHB_SN` | ✅ Automated by `RewriteBoardSerials` transformer + `OpenFlowConfig.rfeb_sn`/`rfhb_sn` fields (V1c-6) |
 | 6 | Convert sweep loops to `@pytest.mark.parametrize` | ❌ **Manual.** Judgment call — only works cleanly for simple outer loops without per-iteration setup. |
 | 7 | Handle nested verdict logic (MPR-skip vs fail) | ❌ **Manual.** Pure RF engineering judgment; migrator can't infer test intent. |
-| 8 | Strip bare `except:` blocks | ✅ Automated by `StripBareExcept` transformer |
+| 8 | Strip bare `except:` blocks | ✅ Automated by `StripBareExcept` transformer (V1c) |
+| 9 | Replace `self.__class__.__name__` with `CLASS_NAME` constant | ✅ Automated by `CaptureClassName` + `RewriteClassDunderName` transformers (V1e) |
 
 ### Step 2 in detail — config field renames (V1d)
 
