@@ -81,3 +81,60 @@ def test_unimplemented_methods_fall_through_to_Dut_getattr():
     with pytest.raises(NotImplementedError) as exc:
         d.set_rfRxGain(45)  # not in V1b port
     assert "V1b" in str(exc.value)
+
+
+# --- V1f audit: critical real-hardware methods must fail loudly on bench ---
+
+def _make_bench_dut() -> DUT_U300:
+    """A DUT_U300 with emulation explicitly OFF, to test the bench code path."""
+    d = DUT_U300()
+    d.emulation = False
+    return d
+
+
+def test_cmd_initialize_raises_on_bench_until_ported():
+    """V1f: bench path must NOT silently warn-and-return — that masks the
+    fact that init didn't actually happen. The engineer needs to see a
+    clear failure with the port name."""
+    d = _make_bench_dut()
+    with pytest.raises(NotImplementedError) as exc:
+        d.cmd_initialize()
+    msg = str(exc.value)
+    assert "cmd_initialize" in msg
+    assert "rfd_simulator" in msg
+
+
+def test_set_rfTxStop_raises_on_bench_until_ported():
+    """V1f: same — silent no-op on bench would leave the DUT in an
+    undefined Tx state at end-of-test."""
+    d = _make_bench_dut()
+    with pytest.raises(NotImplementedError) as exc:
+        d.set_rfTxStop()
+    msg = str(exc.value)
+    assert "set_rfTxStop" in msg
+
+
+def test_set_rfTxPower_raises_on_bench_until_ported():
+    """V1f: critical — previously this returned canned values on bench
+    which would silently produce wrong test data. Must fail loudly."""
+    d = _make_bench_dut()
+    with pytest.raises(NotImplementedError) as exc:
+        d.set_rfTxPower(ul_powers_dBm=0.0, backoffs_dB=0.0,
+                        rb_centre_frequency_Hz=15e3, pll_frequency_Hz=2.5e9)
+    msg = str(exc.value)
+    assert "set_rfTxPower" in msg
+    assert "emulation" in msg.lower()  # message must point user at the workaround
+
+
+def test_set_arb_signal_bb_silent_on_bench_is_faithful_to_source():
+    """V1f: the source body was originally `pass` — silent on bench is
+    faithful, not a bug. Keep the warning-only behavior."""
+    d = _make_bench_dut()
+    # Should NOT raise — original source was a no-op too.
+    d.set_arb_signal_bb(wfg=None, signal_type="5G", signal_option="QPSK")
+
+
+def test_set_arb_power_dBFSrms_silent_on_bench_is_faithful_to_source():
+    """V1f: same as set_arb_signal_bb — original source was `pass`."""
+    d = _make_bench_dut()
+    d.set_arb_power_dBFSrms(wfg=None, power_dBFSrms=-13.0)
