@@ -34,7 +34,15 @@ dependencies = [
     "RsCmwLteSig>=4.0",
     "RsCmwLteMeas>=4.0",
     "RsCmwNrFr1Meas>=3.8",
+    # V4: persistent results storage. SQLAlchemy Core (not ORM) for schema +
+    # queries. PostgreSQL backend ships as an optional extra (`uv sync
+    # --extras postgres`) so engineers without a shared DB don't pull psycopg2.
+    "sqlalchemy>=2.0",
 ]
+
+[project.optional-dependencies]
+postgres = ["psycopg2-binary>=2.9"]
+plot = ["matplotlib>=3.7"]
 
 [project.scripts]
 openflow = "openflow.migrate.cli:main"
