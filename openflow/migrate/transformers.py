@@ -546,3 +546,108 @@ class StripLifecycleStubs(cst.CSTTransformer):
             else:
                 return False
         return True
+
+
+# --- 11. Rewrite UMT/U300_RFEngine imports → openflow imports -----------------
+
+# Maps source module path → (target module path, optional rename for the symbol).
+# If the rename is the same as the source symbol name, no rename is applied;
+# only the module path is rewritten.
+_IMPORT_REWRITES: dict[str, tuple[str, dict[str, str]]] = {
+    "UMT_Instruments.CMW100":          ("openflow.instruments.cmw100",          {}),
+    "UMT_Instruments.WFG":             ("openflow.instruments.stubs",           {}),
+    "UMT_Instruments.DMM":             ("openflow.instruments.stubs",           {}),
+    "UMT_Instruments.PSU":             ("openflow.instruments.stubs",           {}),
+    "UMT_Instruments.OSC":             ("openflow.instruments.stubs",           {}),
+    "UMT_Instruments.SG":              ("openflow.instruments.stubs",           {}),
+    "UMT_Instruments.SA":              ("openflow.instruments.stubs",           {}),
+    "UMT_DUTs.UMT_DUT":                ("openflow.dut.base",                    {"UMT_DUT": "Dut"}),
+    "U300_RFEngine.Deembedding":       ("openflow.rfengine.deembedding",        {}),
+    "U300_RFEngine.Testconditions_Limits": ("openflow.rfengine.testconditions_limits", {}),
+    "U300_RFEngine.Calibration_File":  ("openflow.rfengine.calibration_file",   {}),
+}
+
+# Imports that should be removed entirely — no openflow equivalent in V1a.
+# Match by full dotted module path; relative imports like `.U300_RFEngine_EVT_Base`
+# are matched by the leaf name.
+_IMPORTS_TO_DROP: set[str] = {
+    "U300_RFEngine.U300_RFEngine_EVT_Base",
+    "U300_RFEngine_EVT_Base",  # relative-import form
+    "UMT_Base.UMT_TestCase",
+}
+
+
+def _module_path_string(node: cst.Attribute | cst.Name) -> str:
+    """Convert an Attribute chain to its dotted string form."""
+    parts: list[str] = []
+    cur: cst.BaseExpression = node
+    while isinstance(cur, cst.Attribute):
+        if isinstance(cur.attr, cst.Name):
+            parts.append(cur.attr.value)
+        cur = cur.value
+    if isinstance(cur, cst.Name):
+        parts.append(cur.value)
+    return ".".join(reversed(parts))
+
+
+class RewriteImportPaths(cst.CSTTransformer):
+    """Rewrite `from UMT_X.Y import Z` → `from openflow.x.y import Z` (or drop entirely)."""
+
+    def leave_SimpleStatementLine(
+            self, original_node: cst.SimpleStatementLine,
+            updated_node: cst.SimpleStatementLine
+    ) -> cst.SimpleStatementLine | cst.RemovalSentinel:
+        new_body: list[cst.BaseSmallStatement] = []
+        for stmt in updated_node.body:
+            if isinstance(stmt, cst.ImportFrom):
+                replacement = self._rewrite_import_from(stmt)
+                if replacement is None:
+                    # Drop entirely
+                    continue
+                new_body.append(replacement)
+            else:
+                new_body.append(stmt)
+        if not new_body:
+            return cst.RemovalSentinel.REMOVE
+        return updated_node.with_changes(body=tuple(new_body))
+
+    @staticmethod
+    def _rewrite_import_from(node: cst.ImportFrom) -> cst.ImportFrom | None:
+        if node.module is None:
+            # Relative import like `from .X import Y` — check the names
+            if isinstance(node.names, cst.ImportStar):
+                return node
+            for alias in node.names:
+                name = alias.name.value if isinstance(alias.name, cst.Name) else ""
+                if name in _IMPORTS_TO_DROP:
+                    return None  # drop
+            return node
+
+        module_path = _module_path_string(node.module)
+        if module_path in _IMPORTS_TO_DROP:
+            return None  # drop
+
+        if module_path in _IMPORT_REWRITES:
+            new_path, rename_map = _IMPORT_REWRITES[module_path]
+            # Build new module attribute chain from the dotted string.
+            new_module = RewriteImportPaths._build_module_attribute(new_path)
+            # Apply symbol renames if any.
+            if rename_map and not isinstance(node.names, cst.ImportStar):
+                new_aliases = []
+                for alias in node.names:
+                    orig = alias.name.value if isinstance(alias.name, cst.Name) else ""
+                    if orig in rename_map:
+                        new_aliases.append(alias.with_changes(name=cst.Name(rename_map[orig])))
+                    else:
+                        new_aliases.append(alias)
+                return node.with_changes(module=new_module, names=tuple(new_aliases))
+            return node.with_changes(module=new_module)
+        return node
+
+    @staticmethod
+    def _build_module_attribute(dotted: str) -> cst.Attribute | cst.Name:
+        parts = dotted.split(".")
+        node: cst.Attribute | cst.Name = cst.Name(parts[0])
+        for p in parts[1:]:
+            node = cst.Attribute(value=node, attr=cst.Name(p))
+        return node
