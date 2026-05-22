@@ -26,10 +26,23 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 Confirm with `uv --version` (expect `uv 0.4+` or newer).
 
-### 2. Clone the repo
+### 2. Get the repo
 
+If the lab machine **has GitHub access**:
 ```sh
 git clone https://github.com/mayhuifu/OpenFlow.git
+cd OpenFlow
+```
+
+If the lab machine **does NOT have GitHub access**, the developer ships a zip:
+```sh
+# Developer (on machine with GitHub access):
+scripts/make-offline-bundle.sh             # source-only bundle (~250 KB)
+# or:
+scripts/make-offline-bundle.sh --offline   # source + wheels (~700-900 MB, airgapped)
+
+# scp dist/OpenFlow-*.zip to lab machine, then on the lab machine:
+unzip OpenFlow-YYYYMMDD-HHMMSS-*.zip
 cd OpenFlow
 ```
 
@@ -39,12 +52,15 @@ Everything below runs from the repo root (the directory containing
 ### 3. Sync dependencies
 
 ```sh
+# If the developer sent the source-only bundle (or you git-cloned):
 uv sync
-```
+# This reads pyproject.toml + uv.lock and creates a .venv/ directory with
+# all pinned dependencies. First run downloads ~700 MB.
 
-This reads `pyproject.toml` + `uv.lock` and creates a `.venv/` directory with
-all pinned dependencies. First run downloads ~700 MB (the R&S Python SDK
-packages are large).
+# If the developer sent the OFFLINE bundle (wheels/ folder present):
+uv sync --offline --find-links wheels/
+# Reads wheels/requirements.txt + the bundled wheels — no PyPI hit.
+```
 
 **You do NOT need to activate `.venv/` manually.** Always invoke commands
 through `uv run <command>` — uv finds the project venv automatically.
