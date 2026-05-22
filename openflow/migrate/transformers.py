@@ -759,6 +759,14 @@ class RewriteInputAttrs(cst.CSTTransformer):
         self._local_in_names_stack: list[set[str]] = [set()]
         # Track assignment-target positions so leave_Name knows to skip them.
         self._assignment_target_ids: set[int] = set()
+        # Track kwarg-keyword Name node ids — the LHS of '=' in a call kwarg
+        # must stay a bare Name (Attribute is invalid syntax there).
+        self._kwarg_keyword_ids: set[int] = set()
+
+    def visit_Arg(self, node: cst.Arg) -> None:
+        # Don't rewrite the keyword Name of a kwarg call (e.g. f(in_band=X)).
+        if isinstance(node.keyword, cst.Name):
+            self._kwarg_keyword_ids.add(id(node.keyword))
 
     # Track scope: enter a function, push a new set of local names.
     def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
@@ -800,6 +808,9 @@ class RewriteInputAttrs(cst.CSTTransformer):
             return updated_node
         # Skip assignment targets.
         if id(original_node) in self._assignment_target_ids:
+            return updated_node
+        # Skip kwarg keywords (LHS of '=' in a call) — must stay bare Name.
+        if id(original_node) in self._kwarg_keyword_ids:
             return updated_node
         # Skip if locally defined in the current scope.
         if self._local_in_names_stack and name in self._local_in_names_stack[-1]:
@@ -979,6 +990,14 @@ class RewriteBoardSerials(cst.CSTTransformer):
     def __init__(self) -> None:
         super().__init__()
         self._assignment_target_ids: set[int] = set()
+        # Track kwarg-keyword Name node ids — the LHS of '=' in a call kwarg
+        # must stay a bare Name (Attribute is invalid syntax there).
+        self._kwarg_keyword_ids: set[int] = set()
+
+    def visit_Arg(self, node: cst.Arg) -> None:
+        # Don't rewrite the keyword Name of a kwarg call (e.g. f(RFEB_SN=X)).
+        if isinstance(node.keyword, cst.Name):
+            self._kwarg_keyword_ids.add(id(node.keyword))
 
     def visit_Assign(self, node: cst.Assign) -> None:
         for target in node.targets:
@@ -997,6 +1016,9 @@ class RewriteBoardSerials(cst.CSTTransformer):
         if name not in _BOARD_SERIAL_MAP:
             return updated_node
         if id(original_node) in self._assignment_target_ids:
+            return updated_node
+        # Skip kwarg keywords (LHS of '=' in a call) — must stay bare Name.
+        if id(original_node) in self._kwarg_keyword_ids:
             return updated_node
         return cst.Attribute(
             value=cst.Name("config"),

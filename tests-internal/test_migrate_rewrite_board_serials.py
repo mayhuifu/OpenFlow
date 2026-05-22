@@ -35,3 +35,11 @@ def test_leaves_other_uppercase_names_alone():
     after = transform(before, RewriteBoardSerials())
     assert "SOME_CONST" in after
     assert "TESTCASE_ID" in after  # module-level constants stay
+
+
+def test_does_not_rewrite_kwarg_keyword():
+    """RFEB_SN as a kwarg keyword stays bare; as a value, it rewrites."""
+    before = "f(RFEB_SN=RFEB_SN)\n"
+    after = transform(before, RewriteBoardSerials())
+    assert "f(RFEB_SN=config.rfeb_sn)" in after
+    assert "config.rfeb_sn=" not in after

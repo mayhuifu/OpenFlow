@@ -1,4 +1,3 @@
-from textwrap import dedent
 
 from openflow.migrate.transformers import RewriteInputAttrs, transform
 
@@ -50,3 +49,23 @@ def test_x():
     after = transform(before, RewriteInputAttrs())
     assert "config.band" not in after
     assert "return in_band" in after
+
+
+def test_does_not_rewrite_kwarg_keyword_name():
+    """The Name on the LHS of '=' in a kwarg call must stay as a bare Name —
+    Attribute is invalid syntax for a kwarg keyword."""
+    before = "f(in_band=in_band)\n"  # value should rewrite, keyword should NOT
+    after = transform(before, RewriteInputAttrs())
+    # Output should be: f(in_band=config.band)
+    assert "f(in_band=config.band)" in after
+    # And NOT: f(config.band=config.band)  (syntax error)
+    assert "config.band=" not in after
+
+
+def test_does_not_rewrite_kwarg_keyword_with_nested_value():
+    before = "f(in_band_num=g(in_band), in_rfbw_Hz=in_rfbw_Hz)\n"
+    after = transform(before, RewriteInputAttrs())
+    # Both kwarg keywords (in_band_num, in_rfbw_Hz) must stay bare.
+    # The value positions (in_band → config.band, in_rfbw_Hz → config.rfbw_Hz) rewrite.
+    assert "in_band_num=g(config.band)" in after
+    assert "in_rfbw_Hz=config.rfbw_Hz" in after
