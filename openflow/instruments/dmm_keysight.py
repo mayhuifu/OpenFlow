@@ -15,37 +15,20 @@ API contract (consumed by ``openflow.rfengine.evt_base.setup_dmm`` /
     set_range_voltage(range_V: float) -> None
     get_measurement() -> float
 
-Plus the standard ``Instrument`` ABC contract (``open`` / ``close`` /
-``write`` / ``query`` / ``identify``).
+Plus the standard ``SCPIInstrument`` contract (``open`` / ``close`` /
+``write`` / ``query`` / ``identify`` / ``drain_errors``) inherited from
+``openflow.instruments.scpi``.
 
-The ``is_emulation=True`` mode is the V1-style hardware-free path:
-
-* No pyvisa import or session — the driver records each SCPI command into
-  ``self._scpi_log`` for inspection / test assertions.
-* ``get_measurement()`` returns a deterministic-but-plausible canned value
-  so end-to-end EVT-helper exercises run cleanly without a bench.
-
-On the real-hardware path (``is_emulation=False``) the driver imports pyvisa
-lazily at ``open()`` time. If pyvisa is absent it raises a single, readable
-``RuntimeError`` pointing the engineer at the install step rather than failing
-mid-test with a confusing ImportError.
+V3 refactor: the pyvisa session lifecycle + ``is_emulation`` SCPI-recording
+infrastructure that lived in this module ad-hoc was hoisted into
+``openflow.instruments.scpi.SCPIInstrument`` so the new V3 SG / SA / WFG
+drivers share it. Behavior unchanged — all 12 V1f DMM tests still pass.
 """
 from __future__ import annotations
 
-import logging
-from typing import Any
+import math
 
-from openflow.instruments.base import Instrument
-
-# pyvisa is an optional dependency — the V1a CI environment installs it via
-# `uv sync` (declared in pyproject.toml `dependency-groups.dev`), but emulation
-# users can install OpenFlow without it. We probe at module import so tests can
-# monkeypatch the symbol to simulate the missing-dep path.
-try:
-    import pyvisa
-except ImportError:  # pragma: no cover - exercised by monkeypatch test
-    pyvisa = None  # type: ignore[assignment]
-
+from openflow.instruments.scpi import SCPIInstrument
 
 # Canned emulation reading. Deterministic so test assertions are stable;
 # plausible enough that downstream consumers don't mistake it for an error
@@ -54,95 +37,17 @@ _EMULATION_CURRENT_A = 0.012345  # ~12 mA, typical RFEB bias
 _EMULATION_VOLTAGE_V = 1.234     # ~1.23 V, typical low-side rail
 
 
-class DMMKeysight34461A(Instrument):
-    """Keysight 34461A 6½-digit benchtop DMM driver.
-
-    Constructed with a VISA resource string (``TCPIP0::<host>::INSTR`` for
-    LAN, ``USB0::...`` for USB, etc.) and an optional ``is_emulation`` flag
-    for hardware-free tests.
-    """
+class DMMKeysight34461A(SCPIInstrument):
+    """Keysight 34461A 6½-digit benchtop DMM driver."""
 
     _IDN_HINT = "Keysight Technologies,34461A,EMU0,A.00.00-EMU"
 
     def __init__(self, resource: str = "", *, is_emulation: bool = False) -> None:
-        super().__init__(resource)
-        self.log = logging.getLogger(__name__)
-        self.is_emulation = is_emulation
-
-        # Real-hardware path state — populated by open().
-        self._rm: Any = None
-        self._session: Any = None
-
-        # Recorded SCPI traffic; useful for tests and for engineers
-        # debugging command sequencing without a logic analyzer.
-        self._scpi_log: list[str] = []
-
+        super().__init__(resource, is_emulation=is_emulation)
         # Track current mode so set_range_* can dispatch to the right
         # SCPI form and so get_measurement() can pick a sensible canned
         # value in emulation.
         self._mode: str | None = None  # "CURR" or "VOLT"
-
-    # --- Instrument ABC ----------------------------------------------------
-    def open(self) -> None:
-        if self.is_emulation:
-            self.log.info("DMMKeysight34461A: opening in emulation mode "
-                          "(resource=%r ignored)", self.resource)
-            self._session = None
-            return
-        if pyvisa is None:
-            raise RuntimeError(
-                "DMMKeysight34461A: pyvisa is not installed but is required "
-                "for real-hardware operation. Either install it "
-                "(`uv add pyvisa pyvisa-py`) or construct the driver with "
-                "is_emulation=True for offline / CI runs.")
-        if not self.resource:
-            raise RuntimeError(
-                "DMMKeysight34461A: real-hardware mode requires a VISA "
-                "resource string (e.g. 'TCPIP0::192.168.1.50::INSTR'). "
-                "Pass one via the constructor or the YAML config.")
-        self.log.info("DMMKeysight34461A: opening %s", self.resource)
-        self._rm = pyvisa.ResourceManager()
-        self._session = self._rm.open_resource(self.resource)
-        # Conservative timeout — DMM queries should be sub-second.
-        self._session.timeout = 5_000
-
-    def close(self) -> None:
-        if self._session is not None:
-            try:
-                self._session.close()
-            except Exception as exc:  # best-effort cleanup
-                self.log.warning("DMMKeysight34461A: session close raised %s", exc)
-            self._session = None
-        if self._rm is not None:
-            try:
-                self._rm.close()
-            except Exception as exc:
-                self.log.warning("DMMKeysight34461A: ResourceManager close "
-                                 "raised %s", exc)
-            self._rm = None
-
-    def write(self, scpi: str) -> None:
-        """Send a SCPI command. Records into ``_scpi_log`` either way."""
-        self._scpi_log.append(scpi)
-        if self.is_emulation:
-            return
-        assert self._session is not None, "open() must be called before write()"
-        self._session.write(scpi)
-
-    def query(self, scpi: str) -> str:
-        """Send a SCPI query. Records into ``_scpi_log`` either way."""
-        self._scpi_log.append(scpi)
-        if self.is_emulation:
-            return self._emulated_response(scpi)
-        assert self._session is not None, "open() must be called before query()"
-        result: str = self._session.query(scpi)
-        return result.strip()
-
-    # --- Identity ----------------------------------------------------------
-    def identify(self) -> str:
-        if self.is_emulation:
-            return self._IDN_HINT
-        return self.query("*IDN?")
 
     # --- EVT-helper-facing API --------------------------------------------
     def set_mode(self, *, isVoltage: bool, isDc: bool) -> None:
@@ -186,18 +91,13 @@ class DMMKeysight34461A(Instrument):
         except ValueError:
             self.log.warning("DMMKeysight34461A.get_measurement: "
                              "unparseable response %r", raw)
-            import math
             return math.nan
 
-    # --- Emulation helpers -------------------------------------------------
+    # --- Emulation override -----------------------------------------------
     def _emulated_response(self, scpi: str) -> str:
-        """Return a plausible canned response for an emulation-mode query."""
-        if scpi == "*IDN?":
-            return self._IDN_HINT
+        """Return canned values for the DMM-specific queries."""
         if scpi == "READ?":
             value = (_EMULATION_VOLTAGE_V if self._mode == "VOLT"
                      else _EMULATION_CURRENT_A)
             return f"{value:.6E}"
-        # Catch-all: empty string mimics a DMM that received an unrecognized
-        # query (the engineer will see this in _scpi_log).
-        return ""
+        return super()._emulated_response(scpi)
