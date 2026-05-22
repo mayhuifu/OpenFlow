@@ -55,6 +55,17 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP", "RUF"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Ported R&S SDK code uses star imports per the SDK's documented public API.
+# F403/F405: star imports are intentional. E711/B007/F841: legacy patterns preserved
+# verbatim from the production source (changing them risks subtle behavior diffs).
+"openflow/instruments/cmw100_a.py" = ["F403", "F405", "E711", "B007"]
+"openflow/instruments/cmw100_g.py" = ["F403", "F405", "E711", "F841"]
+# Ported rfengine code is legacy Python; signatures preserved as-is.
+"openflow/rfengine/calibration_file.py" = ["RUF013", "E711", "B007", "F841", "B904", "B905"]
+"openflow/rfengine/deembedding.py" = ["RUF013", "E711", "B007"]
+"openflow/rfengine/testconditions_limits.py" = ["RUF013", "E711"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
@@ -63,8 +74,37 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["libcst.*", "RsCmw*"]
+module = [
+    "libcst.*",
+    "RsCmwBase", "RsCmwBase.*",
+    "RsCmwGprfGen", "RsCmwGprfGen.*",
+    "RsCmwGprfMeas", "RsCmwGprfMeas.*",
+    "RsCmwLteSig", "RsCmwLteSig.*",
+    "RsCmwLteMeas", "RsCmwLteMeas.*",
+    "RsCmwNrFr1Meas", "RsCmwNrFr1Meas.*",
+    "rscmw_base", "rscmw_base.*",
+    "skrf", "skrf.*",
+]
 ignore_missing_imports = true
+
+# Ported R&S / rfengine modules: relax strict checking. These are mechanical ports
+# of untyped legacy Python that talks to an untyped R&S SDK. Adding strict types
+# without per-method audit risks misclassifying R&S SDK return shapes.
+[[tool.mypy.overrides]]
+module = [
+    "openflow.instruments.cmw100_a",
+    "openflow.instruments.cmw100_g",
+    "openflow.rfengine.deembedding",
+    "openflow.rfengine.testconditions_limits",
+    "openflow.rfengine.calibration_file",
+]
+ignore_errors = true
+
+# CMW100 façade calls into untyped mixin methods — relax warn_return_any.
+[[tool.mypy.overrides]]
+module = ["openflow.instruments.cmw100"]
+disallow_untyped_calls = false
+warn_return_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests-internal", "tests"]

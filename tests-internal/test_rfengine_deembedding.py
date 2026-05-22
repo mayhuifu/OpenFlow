@@ -15,7 +15,6 @@ import pytest
 
 from openflow.rfengine.deembedding import Deembedding
 
-
 # A minimal YAML covering one RX and one TX path so we can verify lookups.
 SAMPLE_YAML = """
 RX:

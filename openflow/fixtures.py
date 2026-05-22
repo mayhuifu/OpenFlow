@@ -31,7 +31,7 @@ def config(request: pytest.FixtureRequest) -> OpenFlowConfig:
 
 
 @pytest.fixture(scope="session")
-def cmw100(config: OpenFlowConfig) -> "Generator[CMW100, None, None]":
+def cmw100(config: OpenFlowConfig) -> Generator[CMW100, None, None]:
     """Open a CMW100 session. Resources starting with 'MOCK' trigger emulation mode."""
     inst_cfg = config.instruments.get("cmw100")
     if inst_cfg is None:

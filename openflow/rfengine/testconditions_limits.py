@@ -29,7 +29,7 @@ class Testconditions_Limits:
         self.filename = filename
         self.err = ""
 
-        with open(filename, "r") as f:
+        with open(filename) as f:
             try:
                 self.config = yaml.load(f, Loader=yaml.FullLoader)
             except Exception:

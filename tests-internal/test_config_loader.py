@@ -4,7 +4,6 @@ import pytest
 
 from openflow.config import OpenFlowConfig, load_config
 
-
 VALID_YAML = """
 instruments:
   cmw100:

@@ -25,7 +25,7 @@ class Deembedding:
     def __init__(self, filename):
         self.log = logging.getLogger(__name__)
         self.filename = filename
-        with open(filename, "r") as f:
+        with open(filename) as f:
             try:
                 self.config = yaml.load(f, Loader=yaml.FullLoader)
             except Exception:

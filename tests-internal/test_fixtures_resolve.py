@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 VALID_CONFIG = """
 instruments:
   cmw100:

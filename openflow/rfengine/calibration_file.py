@@ -42,7 +42,7 @@ class Calibration_File:
         self.err = ""
 
         try:
-            with open(self.filename, "r") as f:
+            with open(self.filename) as f:
                 try:
                     self.config = yaml.load(f, Loader=yaml.FullLoader)
                     if self.config is None:
@@ -442,7 +442,7 @@ class Calibration_File:
             per_bw_entries.append({"bw_mhz": bw_mhz, "per_freq": per_freq_entries})
         return per_bw_entries
 
-    def set_tx_rf_cal_data(  # noqa: PLR0912
+    def set_tx_rf_cal_data(
         self,
         band: int,
         bws_hz: list[int] = None,
@@ -562,7 +562,7 @@ class Calibration_File:
         updated_tx = False
         new_offsets = data_tx["tx_cal_data"].get("offsets", {})
 
-        for i, entry in enumerate(tx_carriers):  # noqa: B007
+        for i, entry in enumerate(tx_carriers):
             if entry.get("band") == band:
                 existing = entry["tx_cal_data"]
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class CMW100Config(BaseModel):
@@ -47,9 +48,6 @@ class OpenFlowConfig(BaseModel):
 
 
 # --- YAML loader ---------------------------------------------------------------
-
-import yaml
-from pydantic import ValidationError
 
 
 def load_config(path: Path) -> OpenFlowConfig:

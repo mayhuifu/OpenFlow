@@ -13,7 +13,6 @@ import pytest
 
 from openflow.rfengine.testconditions_limits import Testconditions_Limits
 
-
 SAMPLE_YAML = """
 DVT_5G_NR_Tx_Maximum_Output_Power:
   default:

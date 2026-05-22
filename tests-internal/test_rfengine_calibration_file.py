@@ -18,7 +18,6 @@ import yaml
 
 from openflow.rfengine.calibration_file import Calibration_File
 
-
 SAMPLE_YAML = """
 general:
   calibration_file_version: "v0.2.0"

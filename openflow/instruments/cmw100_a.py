@@ -8,14 +8,12 @@ demand as more tests migrate.
 from __future__ import annotations
 
 import logging
-
-from math import nan
 import math
 
 from RsCmwGprfGen import *
 from RsCmwGprfMeas import *
-from RsCmwLteSig import *
 from RsCmwLteMeas import *
+from RsCmwLteSig import *
 from RsCmwNrFr1Meas import *
 
 # The base package is distributed on PyPI as `rscmw-base` and imports as
@@ -30,13 +28,12 @@ except ImportError:  # pragma: no cover -- exercised on V1b hardware only
     except ImportError:
         RsCmwBase = None  # type: ignore[assignment]
 
-import RsCmwGprfMeas.enums as GprfMeas_enums
-import RsCmwNrFr1Meas.enums as NrFr1Meas_enums
-import RsCmwNrFr1Meas.repcap as NrFr1Meas_repcap
-
-import numpy as np
 import re
 import time
+
+import numpy as np
+import RsCmwNrFr1Meas.enums as NrFr1Meas_enums
+import RsCmwNrFr1Meas.repcap as NrFr1Meas_repcap
 
 
 class CMW100AMixin:
@@ -47,6 +44,9 @@ class CMW100AMixin:
     Nrfr1Meas = None
     VisaAddress = None
     is_emulation = False
+    # in_synchronization_mode is set by the CMW100 façade (mirrors the OpenTAP
+    # default "Enhanced"). Declared here so static type-checkers see it.
+    in_synchronization_mode: str = "Enhanced"
 
     def __init__(self):
         self.log = logging.getLogger(__name__)
@@ -276,11 +276,11 @@ class CMW100AMixin:
         self.Nrfr1Meas.configure.nrSubMeas.cc.nallocations.set(1)
         structure =  self.Nrfr1Meas.configure.nrSubMeas.cc.allocation.pusch.PuschStruct()
         structure.Mapping_Type =  NrFr1Meas_enums.MappingType.A
-        structure.No_Symbols = int(14)
-        structure.Start_Symbol = int(0)
-        structure.Auto = bool(False)
+        structure.No_Symbols = 14
+        structure.Start_Symbol = 0
+        structure.Auto = False
         structure.No_Rbs = get_bandwidth_part_max_rbs( bw_MHz, scs_KHz)/2-2
-        structure.Start_Rb = int(0)
+        structure.Start_Rb = 0
         if in_modulation=="QPSK":
             structure.Mod_Scheme = NrFr1Meas_enums.ModulationScheme.QPSK
         elif in_modulation=="16QAM":

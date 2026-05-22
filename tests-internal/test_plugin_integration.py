@@ -7,7 +7,6 @@ from textwrap import dedent
 
 import pytest
 
-
 INTEGRATION_CONFIG = dedent("""
     instruments:
       cmw100:
