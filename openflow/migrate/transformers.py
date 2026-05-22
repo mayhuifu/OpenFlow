@@ -292,3 +292,88 @@ class ConvertInputProperties(cst.CSTTransformer):
                 default_src = "?"
             return tgt.value, default_src
         return None
+
+
+# --- 6. Convert TestStep class -> module-level test_<snake>() function --------
+
+import re
+
+
+def _to_snake_case(name: str) -> str:
+    # If the input already has underscores (typical for OpenTAP test classes
+    # like U300B0_RFEB_EVT_TX_EVM_Power_Sweep), just lowercase it — splitting
+    # further would insert spurious underscores between digits and capitals.
+    if "_" in name:
+        return name.lower()
+    s = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    return s.lower()
+
+
+class ConvertClassToTestFunction(cst.CSTTransformer):
+    """Replace a single TestStep class with a module-level test function.
+
+    instrument_fixtures: names captured by ConvertInstrumentProperties — these
+                        plus 'config' and 'results' form the test signature."""
+
+    def __init__(self, instrument_fixtures: list[str]) -> None:
+        super().__init__()
+        self.instrument_fixtures = instrument_fixtures
+        self._inside_class = False
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> bool:
+        self._inside_class = True
+        return True
+
+    def leave_ClassDef(self, original_node: cst.ClassDef,
+                       updated_node: cst.ClassDef) -> cst.CSTNode | RemovalSentinel:
+        self._inside_class = False
+        # Find the Run method.
+        run_body: cst.IndentedBlock | None = None
+        for stmt in updated_node.body.body:
+            if isinstance(stmt, cst.FunctionDef) and stmt.name.value == "Run":
+                run_body = stmt.body
+                break
+        if run_body is None:
+            return updated_node  # nothing to do
+        # Strip `super().Run()` first statement if present.
+        body_statements = list(run_body.body)
+        if body_statements and self._is_super_run(body_statements[0]):
+            body_statements = body_statements[1:]
+        new_block = run_body.with_changes(body=tuple(body_statements))
+        # Build the new test function signature.
+        fixture_names = list(self.instrument_fixtures) + ["config", "results"]
+        params = cst.Parameters(params=tuple(
+            cst.Param(name=cst.Name(value=n)) for n in fixture_names
+        ))
+        func_name = "test_" + _to_snake_case(updated_node.name.value)
+        new_func = cst.FunctionDef(
+            name=cst.Name(value=func_name),
+            params=params,
+            body=new_block,
+        )
+        return new_func
+
+    @staticmethod
+    def _is_super_run(stmt: cst.BaseStatement) -> bool:
+        if not isinstance(stmt, cst.SimpleStatementLine):
+            return False
+        for sub in stmt.body:
+            if isinstance(sub, cst.Expr) and isinstance(sub.value, cst.Call):
+                call = sub.value
+                if (isinstance(call.func, cst.Attribute)
+                        and isinstance(call.func.attr, cst.Name)
+                        and call.func.attr.value == "Run"
+                        and isinstance(call.func.value, cst.Call)
+                        and isinstance(call.func.value.func, cst.Name)
+                        and call.func.value.func.value == "super"):
+                    return True
+        return False
+
+    def leave_Attribute(self, original_node: cst.Attribute,
+                        updated_node: cst.Attribute) -> cst.CSTNode:
+        # Strip `self.foo` → `foo` everywhere in the (former) class body.
+        if (isinstance(updated_node.value, cst.Name)
+                and updated_node.value.value == "self"):
+            return updated_node.attr
+        return updated_node
