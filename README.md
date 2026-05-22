@@ -63,28 +63,56 @@ uv run pytest tests/test_rx_gain_accuracy.py \
   --openflow-report=report.json
 ```
 
-## Quickstart (V1a)
+## Quickstart
 
 ```sh
 # Set up
 uv sync
 
-# Run the internal test suite (framework + migrator, no bench needed)
+# 1. Confirm framework health (no bench needed):
 uv run pytest tests-internal
+# → 201 tests pass
 
-# Convert an OpenTAP-Python test to bare-metal pytest
+# 2. New bench? Start with the bring-up sequence:
+uv run pytest tests/bench_bringup/test_01_cmw100_connectivity.py \
+  --openflow-config=tests/configs/u300b0_evt.yaml \
+  --openflow-report=01-conn.json --log-cli-level=INFO -v
+
+# See tests/bench_bringup/README.md for the full bring-up walkthrough.
+
+# 3. Convert an OpenTAP-Python test to bare-metal pytest:
 uv run openflow migrate path/to/OpenTAP_Test.py
 # → emits path/to/test_opentap_test.py + summary of items to clean up
 
-# Collect-check the V1a migrated demo (no bench needed)
-uv run pytest tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py \
-  --openflow-config=tests/configs/u300b0_evt.yaml --collect-only
-
-# Bench run (V1b — needs real CMW100 + DUT_U300 once V1b lands)
+# 4. Full demo test (still needs engineer-provided limits/deembedding/calibration data):
 uv run pytest tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py \
   --openflow-config=tests/configs/u300b0_evt.yaml \
   --openflow-report=report.json
 ```
+
+## Bench bring-up (recommended starting point on new hardware)
+
+Three smoke tests in [`tests/bench_bringup/`](./tests/bench_bringup/) isolate
+each component so failures point at one cause:
+
+| # | Test | What it proves |
+|---|---|---|
+| 1 | `test_01_cmw100_connectivity.py` | LAN + SDK + VISA path is healthy |
+| 2 | `test_02_cmw100_nr_diagnostics.py` | NR FR1 Meas license + app state (diagnostic-only) |
+| 3 | `test_03_cmw100_tx_evm_smoke.py` | Full CMW100 NR measurement chain (5-point sweep) |
+
+See [`tests/bench_bringup/README.md`](./tests/bench_bringup/README.md) for the
+recommended order and troubleshooting tips.
+
+## Transferring the repo to a lab machine without GitHub
+
+```sh
+scripts/make-offline-bundle.sh             # ~250 KB source-only zip
+scripts/make-offline-bundle.sh --offline   # ~700-900 MB source + pinned wheels
+```
+
+Output lands in `dist/`. Engineer unzips on the bench machine, runs `uv sync`,
+then continues with the bring-up sequence above.
 
 ## Roadmap
 
