@@ -241,3 +241,54 @@ class ConvertInstrumentProperties(cst.CSTTransformer):
             if isinstance(first_arg, cst.Name) and first_arg.value in _INSTRUMENT_TYPES:
                 return tgt.value
         return None
+
+
+# --- 5. Strip `in_<name> = property(<Type>, <default>)...` input declarations --
+
+_INPUT_PROPERTY_TYPES = {"Double", "Int32", "Int64", "String", "Boolean"}
+
+
+class ConvertInputProperties(cst.CSTTransformer):
+    """Record `in_* = property(<scalar-type>, <default>)...` decls and strip them.
+    The pipeline uses ``self.inputs`` to emit a YAML migration TODO."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.inputs: list[tuple[str, str]] = []
+
+    def leave_ClassDef(self, original_node: cst.ClassDef,
+                       updated_node: cst.ClassDef) -> cst.ClassDef:
+        new_body: list[cst.BaseStatement] = []
+        for stmt in updated_node.body.body:
+            captured = self._input_property(stmt)
+            if captured is not None:
+                self.inputs.append(captured)
+                continue
+            new_body.append(stmt)
+        return updated_node.with_changes(
+            body=updated_node.body.with_changes(body=tuple(new_body)))
+
+    def _input_property(self, stmt: cst.BaseStatement) -> tuple[str, str] | None:
+        if not isinstance(stmt, cst.SimpleStatementLine):
+            return None
+        for sub in stmt.body:
+            if not isinstance(sub, cst.Assign) or len(sub.targets) != 1:
+                continue
+            tgt = sub.targets[0].target
+            if not (isinstance(tgt, cst.Name) and tgt.value.startswith("in_")):
+                continue
+            call = _outermost_call(sub.value)
+            if call is None or len(call.args) < 2:
+                continue
+            if not (isinstance(call.func, cst.Name) and call.func.value == "property"):
+                continue
+            first = call.args[0].value
+            if not (isinstance(first, cst.Name) and first.value in _INPUT_PROPERTY_TYPES):
+                continue
+            second = call.args[1].value
+            try:
+                default_src = cst.Module(body=[]).code_for_node(second)
+            except Exception:
+                default_src = "?"
+            return tgt.value, default_src
+        return None
