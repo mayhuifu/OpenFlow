@@ -15,8 +15,29 @@ from openflow.dut.base import Dut
 from openflow.errors import InstrumentConnectError
 from openflow.instruments.cmw100 import CMW100
 from openflow.instruments.dmm_keysight import DMMKeysight34461A
-from openflow.instruments.stubs import WFG
+from openflow.instruments.sa_base import SpectrumAnalyzerBase
+from openflow.instruments.sa_keysight_n9020b import KeysightN9020B
+from openflow.instruments.sa_rs_fsw import RsFsw
+from openflow.instruments.sg_rs_smw200a import RsSmw200a
+from openflow.instruments.wfg_keysight_33500b import Keysight33500B
 from openflow.results import ResultsPublisher
+
+# V3 model-name → driver-class dispatch tables. Engineers extend these
+# when they add a new instrument model. Keys are stable strings used in
+# `instruments.<inst>.model` YAML entries.
+_SA_MODELS: dict[str, type[SpectrumAnalyzerBase]] = {
+    "keysight_n9020b": KeysightN9020B,
+    "rs_fsw": RsFsw,
+}
+_SG_MODELS: dict[str, type[RsSmw200a]] = {
+    "rs_smw200a": RsSmw200a,
+}
+_WFG_MODELS: dict[str, type[Keysight33500B]] = {
+    "keysight_33500b": Keysight33500B,
+}
+_DMM_MODELS: dict[str, type[DMMKeysight34461A]] = {
+    "keysight_34461a": DMMKeysight34461A,
+}
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -76,11 +97,46 @@ def dut(config: OpenFlowConfig) -> Dut:
 
 
 @pytest.fixture(scope="session")
-def wfg(config: OpenFlowConfig) -> WFG:
-    """V1a placeholder — WFG real port lands in V2."""
+def wfg(config: OpenFlowConfig) -> Generator[Keysight33500B, None, None]:
+    """Keysight 33500B WFG (V3). MOCK:: prefix → emulation; otherwise pyvisa."""
     inst_cfg = config.instruments.get("wfg")
     resource = inst_cfg.resource if inst_cfg is not None else ""
-    return WFG(resource)
+    model = (inst_cfg.model if inst_cfg else None) or "keysight_33500b"
+    cls = _WFG_MODELS[model]
+    is_emul = resource.startswith("MOCK") or not resource
+    inst = cls(resource, is_emulation=is_emul)
+    inst.open()
+    yield inst
+    inst.close()
+
+
+@pytest.fixture(scope="session")
+def sg(config: OpenFlowConfig) -> Generator[RsSmw200a, None, None]:
+    """R&S SMW200A signal generator (V3). MOCK:: → emulation."""
+    inst_cfg = config.instruments.get("sg")
+    resource = inst_cfg.resource if inst_cfg is not None else ""
+    model = (inst_cfg.model if inst_cfg else None) or "rs_smw200a"
+    cls = _SG_MODELS[model]
+    is_emul = resource.startswith("MOCK") or not resource
+    inst = cls(resource, is_emulation=is_emul)
+    inst.open()
+    yield inst
+    inst.close()
+
+
+@pytest.fixture(scope="session")
+def sa(config: OpenFlowConfig) -> Generator[SpectrumAnalyzerBase, None, None]:
+    """Spectrum analyzer (V3). Model selectable via instruments.sa.model:
+    'keysight_n9020b' (default) or 'rs_fsw'."""
+    inst_cfg = config.instruments.get("sa")
+    resource = inst_cfg.resource if inst_cfg is not None else ""
+    model = (inst_cfg.model if inst_cfg else None) or "keysight_n9020b"
+    cls = _SA_MODELS[model]
+    is_emul = resource.startswith("MOCK") or not resource
+    inst = cls(resource, is_emulation=is_emul)
+    inst.open()
+    yield inst
+    inst.close()
 
 
 @pytest.fixture(scope="session")

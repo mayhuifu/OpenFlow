@@ -109,9 +109,13 @@ def test_context_manager_opens_and_closes():
 
 def test_open_without_pyvisa_on_real_path_raises_clearly(monkeypatch):
     """If is_emulation=False but pyvisa isn't installed, the failure must
-    be a single readable error pointing the engineer at the install step."""
-    import openflow.instruments.dmm_keysight as mod
-    monkeypatch.setattr(mod, "pyvisa", None)
+    be a single readable error pointing the engineer at the install step.
+
+    V3 note: pyvisa now lives in openflow.instruments.scpi (the shared
+    base), not dmm_keysight directly. Patch the base module.
+    """
+    import openflow.instruments.scpi as scpi_mod
+    monkeypatch.setattr(scpi_mod, "pyvisa", None)
     dmm = DMMKeysight34461A(resource="TCPIP::1.2.3.4::INSTR", is_emulation=False)
     with pytest.raises(RuntimeError, match="pyvisa"):
         dmm.open()

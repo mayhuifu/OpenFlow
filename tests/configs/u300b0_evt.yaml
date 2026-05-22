@@ -10,6 +10,20 @@
 instruments:
   cmw100:
     resource: "MOCK::CMW100::INSTR"   # change to TCPIP::<ip>::INSTR for bench
+  # V3: real driver coverage. MOCK:: prefix routes each fixture to is_emulation=True.
+  sg:
+    resource: "MOCK::SG::INSTR"
+    # model: rs_smw200a              # default; uncomment to be explicit
+  sa:
+    resource: "MOCK::SA::INSTR"
+    # model: keysight_n9020b         # default; alternative: rs_fsw
+  wfg:
+    resource: "MOCK::WFG::INSTR"
+    # model: keysight_33500b         # default
+  dmm_c:
+    resource: "MOCK::DMM_C::INSTR"   # V1f Keysight 34461A
+  dmm_v:
+    resource: "MOCK::DMM_V::INSTR"
 
 band: n78
 modulation: "16QAM"
