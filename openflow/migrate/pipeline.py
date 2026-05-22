@@ -20,6 +20,8 @@ from openflow.migrate.transformers import (
     RewriteImportPaths,
     RewriteInputAttrs,
     RewriteOutputPublish,
+    RewritePrintSummary,
+    RewriteSweepLoops,
     StripAttributeDecorators,
     StripBareExcept,
     StripLifecycleStubs,
@@ -36,7 +38,7 @@ class MigrationResult:
 
 
 def migrate_source(source: str) -> MigrationResult:
-    """Run all 20 transformers in order, return the rewritten code + metadata.
+    """Run all 22 transformers in order, return the rewritten code + metadata.
 
     Pipeline order matters:
       - Phase 1 strips OpenTAP scaffolding + collects metadata (instruments,
@@ -81,7 +83,9 @@ def migrate_source(source: str) -> MigrationResult:
             class_name=cls_capture.class_name,
         ),
         RewriteEvtHelperCalls(),       # 19. Setup_DMM/Get_DMM/Get_Aux → lowercase + auto-import
-        StripBareExcept(),             # 20. bare `except:` → `except Exception:`
+        RewritePrintSummary(),         # 20. Print_Summary(...) → logger.info(...)   (V2)
+        RewriteSweepLoops(),           # 21. for x in [...]: ... → @pytest.mark.parametrize  (V2)
+        StripBareExcept(),             # 22. bare `except:` → `except Exception:`
     )
     return MigrationResult(code=code,
                            instrument_fixtures=inst.instrument_names,

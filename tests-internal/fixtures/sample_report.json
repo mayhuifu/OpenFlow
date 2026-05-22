@@ -1,0 +1,48 @@
+{
+  "session": {
+    "exit_status": 1,
+    "passed": 4,
+    "failed": 1,
+    "host": "bench-01",
+    "openflow_version": "0.4.0"
+  },
+  "tests": [
+    {
+      "test_id": "tests/test_tx_evm.py::test_sweep[0]",
+      "testcase_id": "U300B0-RFE-EVT-005",
+      "records": [
+        {"timestamp": "2026-05-22T20:00:00Z", "target_tx_power_dBm": -30.0, "measured_tx_power_dBm": -29.85, "measured_EVM_pct": 1.42},
+        {"timestamp": "2026-05-22T20:00:01Z", "target_tx_power_dBm": -20.0, "measured_tx_power_dBm": -19.92, "measured_EVM_pct": 1.31},
+        {"timestamp": "2026-05-22T20:00:02Z", "target_tx_power_dBm": -10.0, "measured_tx_power_dBm": -9.95, "measured_EVM_pct": 1.18},
+        {"timestamp": "2026-05-22T20:00:03Z", "target_tx_power_dBm": 0.0, "measured_tx_power_dBm": -0.01, "measured_EVM_pct": 1.09},
+        {"timestamp": "2026-05-22T20:00:04Z", "target_tx_power_dBm": 10.0, "measured_tx_power_dBm": 9.78, "measured_EVM_pct": 2.51}
+      ]
+    },
+    {
+      "test_id": "tests/test_rx_gain.py::test_accuracy[0]",
+      "testcase_id": "U300B0-RFE-EVT-002",
+      "records": [
+        {"timestamp": "2026-05-22T20:00:10Z", "gain_setting": 0, "rx_gain_delta": 0.12}
+      ]
+    },
+    {
+      "test_id": "tests/test_rx_gain.py::test_accuracy[3]",
+      "testcase_id": "U300B0-RFE-EVT-002",
+      "records": [
+        {"timestamp": "2026-05-22T20:00:11Z", "gain_setting": 3, "rx_gain_delta": 0.45}
+      ]
+    },
+    {
+      "test_id": "tests/bench_bringup/test_01_cmw100_connectivity.py::test_cmw100_identify_only",
+      "testcase_id": "CMW100-CONNECTIVITY",
+      "records": [
+        {"timestamp": "2026-05-22T20:00:20Z", "idn": "Rohde&Schwarz,CMW,1201.0002k06/131694,3.8.17", "pending_errors": []}
+      ]
+    },
+    {
+      "test_id": "tests/test_dut_init.py::test_smoke_failing",
+      "testcase_id": "DUT-SMOKE-FAIL",
+      "records": []
+    }
+  ]
+}
