@@ -653,3 +653,18 @@ class RewriteImportPaths(cst.CSTTransformer):
         for p in parts[1:]:
             node = cst.Attribute(value=node, attr=cst.Name(p))
         return node
+
+
+# --- 12. Bare `except:` → `except Exception:` --------------------------------
+
+class StripBareExcept(cst.CSTTransformer):
+    """Convert bare `except:` clauses to `except Exception:` (PEP-8 best practice)."""
+
+    def leave_ExceptHandler(self, original_node: cst.ExceptHandler,
+                            updated_node: cst.ExceptHandler) -> cst.ExceptHandler:
+        if updated_node.type is not None:
+            return updated_node
+        return updated_node.with_changes(
+            type=cst.Name("Exception"),
+            whitespace_after_except=cst.SimpleWhitespace(" "),
+        )
