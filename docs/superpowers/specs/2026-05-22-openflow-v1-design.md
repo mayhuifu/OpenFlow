@@ -113,6 +113,29 @@ uv run openflow migrate path/to/U300B0_RFEB_EVT_TX_EVM_Power_Sweep.py
 file, preserving comments and most formatting, marking any pattern it can't
 auto-convert with a `# TODO[openflow-migrate]:` comment.
 
+### V1a vs V1b — splitting "shipped" when UMT_DUT status is unresolved
+
+The success criterion above assumes a real bench run is possible. If open
+question #1 (UMT module status) resolves to "OpenTAP-tangled and must be
+ported," that bench run is blocked until the port lands. To avoid the
+framework work waiting on the DUT-porting question, V1 ships in two parts:
+
+- **V1a — framework + migration tool** *(unblocked by anything)*: pytest plugin,
+  fixtures (with `MockCMW100`), YAML config + pydantic models, results
+  publisher, `openflow migrate` CLI, the libcst transformer pipeline, and the
+  migrated `test_u300b0_rfeb_evt_tx_evm_power_sweep.py` source. Definition of
+  done: CI green on Windows + Ubuntu (lint, type-check, unit tests,
+  mock-instrument integration test).
+- **V1b — bench validation** *(blocked on UMT_DUT status)*: the migrated test
+  runs end-to-end against a real CMW100 + real U300 DUT, producing
+  `report.json` with the same verdicts as the original OpenTAP test. If
+  UMT_DUT is plain Python, V1b lands in the same release; if it needs
+  porting, V1b waits for that port (could be days or weeks).
+
+V1 as a whole is "shipped" only when V1b is green. V1a alone is shippable as
+an internal milestone — proof that the new architecture works — but should
+not be presented externally as the migration being done.
+
 ### Explicit non-goals for v1
 
 - Web dashboard for historical results (deferred to v5+)
