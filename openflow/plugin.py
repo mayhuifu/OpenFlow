@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from openflow.results import ResultsPublisher, write_session_report
+from openflow.fixtures import cmw100, config, dmm_c, dmm_v, dut, results, wfg  # noqa: F401  (re-export for pytest)
 
 if TYPE_CHECKING:
     import pytest
