@@ -75,6 +75,37 @@ def test_dut_fixture_is_Dut_instance(pytester: pytest.Pytester, tmp_path: Path) 
     assert result.ret == 0
 
 
+def test_dut_fixture_returns_DUT_U300_when_configured(
+        pytester: pytest.Pytester, tmp_path: Path) -> None:
+    cfg = tmp_path / "cfg.yaml"
+    # YAML with `dut: type: u300` block appended to VALID_CONFIG.
+    cfg.write_text(VALID_CONFIG + "\ndut:\n  type: u300\n  emulation: true\n")
+    pytester.makepyfile("""
+        from openflow.dut.u300 import DUT_U300
+
+        def test_dut_is_u300(dut):
+            assert isinstance(dut, DUT_U300)
+            assert dut.emulation is True
+    """)
+    result = pytester.runpytest(f"--openflow-config={cfg}")
+    assert result.ret == 0
+
+
+def test_dut_fixture_returns_FT2232H_when_configured(
+        pytester: pytest.Pytester, tmp_path: Path) -> None:
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(VALID_CONFIG + "\ndut:\n  type: ft2232h\n  emulation: true\n")
+    pytester.makepyfile("""
+        from openflow.dut.ft2232h import DUT_FT2232h_V03
+
+        def test_dut_is_ft2232h(dut):
+            assert isinstance(dut, DUT_FT2232h_V03)
+            assert dut.emulation is True
+    """)
+    result = pytester.runpytest(f"--openflow-config={cfg}")
+    assert result.ret == 0
+
+
 def test_wfg_dmm_c_dmm_v_fixtures_resolve(
         pytester: pytest.Pytester, tmp_path: Path) -> None:
     cfg = tmp_path / "cfg.yaml"

@@ -33,3 +33,11 @@ board_config: RFEB1
 limits_path: ../../configs/limits/U300B0.yaml
 deembedding_path: ../../configs/deembedding/U300B0.yaml
 calibration_path: ../../configs/calibration/U300B0.yaml
+
+# V1b DUT selection. For bench validation, change type to "u300", emulation to false,
+# and provide ftdi_address + reg_map_file (when using the FT2232H bridge).
+dut:
+  type: stub          # change to "u300" for V1b bench validation
+  emulation: true     # change to false for bench validation
+  ftdi_address: ""    # e.g. "ftdi://ftdi:2232h:ASK-22-17-3126/2"
+  reg_map_file: ""    # e.g. "U300_RFIC_A0_V00.csv"

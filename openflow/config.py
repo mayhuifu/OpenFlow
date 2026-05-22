@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -13,6 +14,18 @@ class CMW100Config(BaseModel):
 
     resource: str = Field(min_length=1,
                           description="PyVISA resource string, e.g. 'TCPIP::192.168.1.100::INSTR'")
+
+
+class DutConfig(BaseModel):
+    """DUT configuration. type='stub' means the generic Dut base; concrete subclasses
+    in V1b are 'u300' (DUT_U300) and 'ft2232h' (DUT_FT2232h_V03)."""
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["stub", "u300", "ft2232h"] = "stub"
+    # FTDI bridge fields (optional — only used when the DUT type involves FT2232H).
+    ftdi_address: str = ""
+    reg_map_file: str = ""
+    emulation: bool = True  # V1a-compatible default
 
 
 class OpenFlowConfig(BaseModel):
@@ -45,6 +58,9 @@ class OpenFlowConfig(BaseModel):
     limits_path: Path
     deembedding_path: Path
     calibration_path: Path
+
+    # DUT selection (V1a default: stub returns base Dut; V1b: u300, ft2232h)
+    dut: DutConfig = Field(default_factory=DutConfig)
 
 
 # --- YAML loader ---------------------------------------------------------------
