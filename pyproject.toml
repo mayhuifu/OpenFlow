@@ -38,6 +38,11 @@ dependencies = [
     # queries. PostgreSQL backend ships as an optional extra (`uv sync
     # --extras postgres`) so engineers without a shared DB don't pull psycopg2.
     "sqlalchemy>=2.0",
+    "filelock>=3.29.0",
+    "pytest-xdist>=3.8.0",
+    "fastapi>=0.136.1",
+    "uvicorn>=0.47.0",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]

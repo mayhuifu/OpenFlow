@@ -54,6 +54,63 @@ class StorageConfig(BaseModel):
     sqlite_path: Path | None = None
 
 
+class ParallelDutConfig(BaseModel):
+    """V5b: one DUT slot in a multi-DUT parallel run.
+
+    Each parallel slot can have its own DUT type / address. The ``tag``
+    is what the per-worker pytest fixture exposes so test code can
+    distinguish which DUT it's running against (e.g. for board-serial-
+    keyed calibration data).
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    tag: str
+    type: Literal["stub", "u300", "ft2232h"] = "stub"
+    ftdi_address: str = ""
+    reg_map_file: str = ""
+    emulation: bool = True
+
+
+class ParallelConfig(BaseModel):
+    """V5b: multi-DUT parallel runs.
+
+    ``duts``: zero-length means single-DUT mode (V1-V4 behavior); else
+    each entry spawns a pytest-xdist worker with that DUT bound.
+
+    ``shared_instruments``: names of instruments (keys in
+    ``OpenFlowConfig.instruments``) that all workers serialize access
+    to via the Coordinator (V5b/coordinator.py). Per-worker exclusive
+    instruments aren't listed here — they're per-DUT.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    duts: list[ParallelDutConfig] = Field(default_factory=list)
+    shared_instruments: list[str] = Field(default_factory=list)
+
+
+class BenchConfig(BaseModel):
+    """V5a: bench reservation policy.
+
+    ``check_reservations``: when True, the pytest plugin verifies at
+    sessionstart that every instrument resource string in the YAML is
+    either unreserved or reserved by the current engineer. Fails fast
+    on conflict (unless ``--openflow-force-reserve`` is passed).
+
+    ``store``: path or DSN passed to the reservation store. Defaults
+    to ``~/.openflow/reservations.json`` (local file-locked JSON). For
+    shared labs, set to a ``sqlite://`` or ``postgresql://`` URL.
+
+    ``user``: identity recorded when the plugin auto-reserves resources
+    on behalf of a test session. Defaults to ``$OPENFLOW_USER`` /
+    ``$USER`` at runtime.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    check_reservations: bool = False
+    store: str | None = None
+    user: str | None = None
+
+
 class DutConfig(BaseModel):
     """DUT configuration. type='stub' means the generic Dut base; concrete subclasses
     in V1b are 'u300' (DUT_U300) and 'ft2232h' (DUT_FT2232h_V03)."""
@@ -109,6 +166,16 @@ class OpenFlowConfig(BaseModel):
     # V4: persistent results (SQLite default, optional PostgreSQL).
     # storage.persist defaults to False during the v0.9.x beta period.
     storage: StorageConfig = Field(default_factory=StorageConfig)
+
+    # V5a: bench reservation. check_reservations defaults to False to
+    # preserve V1-V4 behavior for engineers who haven't opted into the
+    # coordination layer.
+    bench: BenchConfig = Field(default_factory=BenchConfig)
+
+    # V5b: multi-DUT parallel runs. Empty duts list = single-DUT (V1-V4
+    # behavior unchanged). Engineers populate this when they want to
+    # run tests against multiple DUTs in parallel via pytest-xdist.
+    parallel: ParallelConfig = Field(default_factory=ParallelConfig)
 
 
 # --- YAML loader ---------------------------------------------------------------

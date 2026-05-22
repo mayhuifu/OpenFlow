@@ -110,6 +110,17 @@ schema_version = Table(
     Column("applied_at", DateTime, nullable=False),
 )
 
+# V5a: bench reservations. One row per actively-reserved resource.
+# Expired reservations are NOT auto-deleted (so engineers can see who *was*
+# on a bench); they just don't block new reservations.
+reservations = Table(
+    "reservations", metadata,
+    Column("resource", String, primary_key=True),
+    Column("acquired_by", String, nullable=False),
+    Column("acquired_at", DateTime, nullable=False),
+    Column("expires_at", DateTime, nullable=False),
+    Column("reason", String, nullable=True),
+)
 
 # Public list of all tables for the schema-create / drop_all flow.
-ALL_TABLES = [sessions, tests, cases, measurements, schema_version]
+ALL_TABLES = [sessions, tests, cases, measurements, schema_version, reservations]

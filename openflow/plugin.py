@@ -30,6 +30,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
                     help="Path to write the HTML session report (V2). "
                          "Requires --openflow-report (the HTML is rendered "
                          "from the JSON output).")
+    group.addoption("--openflow-force-reserve", action="store_true",
+                    default=False,
+                    help="V5a: override an existing bench reservation by "
+                         "someone else (logged in the reservation history).")
 
 
 def pytest_configure(config: pytest.Config) -> None:  # noqa: F811
@@ -45,6 +49,67 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: F811
 def pytest_sessionstart(session: pytest.Session) -> None:
     # Initialize the per-session publisher list.
     session._openflow_publishers = []  # type: ignore[attr-defined]
+    # V5a: bench reservation check, if config enables it.
+    _enforce_bench_reservations(session)
+
+
+def _enforce_bench_reservations(session: pytest.Session) -> None:
+    """V5a: if ``bench.check_reservations`` is True, fail fast when any
+    instrument resource is reserved by someone else.
+
+    Unreserved resources are NOT auto-reserved here — that's deliberate.
+    Engineers reserve explicitly via ``openflow bench reserve`` so the
+    reason field gets filled in.
+    """
+    cfg = _try_load_config(session)
+    if cfg is None or not cfg.bench.check_reservations:
+        return
+
+    from openflow.bench.cli import _default_store_path, _default_user, _open_store
+
+    user = cfg.bench.user or _default_user()
+    store_arg = cfg.bench.store or str(_default_store_path())
+    force = bool(session.config.getoption("--openflow-force-reserve"))
+
+    try:
+        store = _open_store(store_arg)
+    except Exception as exc:
+        import warnings
+        warnings.warn(
+            f"OpenFlow: bench reservation store unreachable ({exc}); "
+            "skipping reservation check.", stacklevel=2)
+        return
+
+    conflicts: list[str] = []
+    for inst_name, inst_cfg in cfg.instruments.items():
+        resource = inst_cfg.resource
+        # MOCK:: prefix routes to emulation — no reservation needed.
+        if resource.startswith("MOCK"):
+            continue
+        info = store.get(resource)
+        if info is None or info.is_expired:
+            continue
+        if info.acquired_by == user:
+            continue
+        if force:
+            import logging
+            logging.getLogger(__name__).warning(
+                "V5a force-reserve override: %s (held by %s, reason=%r) — "
+                "logged in reservation history", resource, info.acquired_by,
+                info.reason)
+            store.release(resource)
+            continue
+        conflicts.append(
+            f"  {inst_name}: {resource} reserved by {info.acquired_by} "
+            f"until {info.expires_at.isoformat()}"
+            + (f" — {info.reason}" if info.reason else ""))
+
+    if conflicts:
+        import pytest as _pytest
+        msg = ("V5a: bench resources reserved by another engineer:\n"
+               + "\n".join(conflicts)
+               + "\n\nWait for release or re-run with --openflow-force-reserve.")
+        _pytest.exit(msg, returncode=1)
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
