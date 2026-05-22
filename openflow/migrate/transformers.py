@@ -1161,3 +1161,133 @@ class RewriteClassDunderName(cst.CSTTransformer):
                         continue  # __author__, __version__, etc.
             return i
         return len(body)
+
+
+# --- 20. Setup_DMM/Get_DMM/Get_Aux → lowercase + auto-import ----------------
+
+# OpenTAP CamelCase helper -> (new lowercase name, default arg-fill).
+# The arg-fill is what we emit when the call has no args (the common case).
+# `dmms={}` makes the call runtime-safe (no TypeError on required param) but
+# returns nothing — engineer fills in their bench's DMM mapping.
+_EVT_HELPER_MAP: dict[str, tuple[str, str]] = {
+    "Setup_DMM": ("setup_dmm", "dmms={}"),
+    "Get_DMM":   ("get_dmm",   "dmms={}"),
+    "Get_Aux":   ("get_aux",   "dut"),
+}
+
+
+class RewriteEvtHelperCalls(cst.CSTTransformer):
+    """Rewrite bare-name calls to the OpenTAP EVT-base helpers into their
+    module-level Python equivalents from ``openflow.rfengine.evt_base``,
+    and inject the corresponding ``from ... import ...`` statement for
+    the helpers actually used.
+
+    Before  (after ConvertClassToTestFunction has stripped ``self.``):
+        Setup_DMM()
+        Get_DMM()
+        Get_Aux()
+
+    After:
+        from openflow.rfengine.evt_base import setup_dmm, get_dmm, get_aux
+        ...
+        setup_dmm(dmms={})           # engineer fills in their DMM dict
+        get_dmm(dmms={})
+        get_aux(dut)
+
+    Behavior notes:
+
+    * Bare-name calls only — ``obj.Setup_DMM()`` is left alone (could be a
+      real method on a different object).
+    * Calls that already have explicit args (``Setup_DMM(dmms={...})``)
+      are renamed but their args are preserved.
+    * Imports that already exist (engineer pre-imported) are not duplicated.
+    * Pipeline position: after ConvertClassToTestFunction (which strips
+      ``self.``) and after the other Phase-2 rewrites that build the test
+      function body.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Lowercase names actually emitted into the rewritten tree.
+        self._used: set[str] = set()
+        # Already-imported names from evt_base (so we don't re-add).
+        self._already_imported: set[str] = set()
+
+    def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
+        # Detect `from openflow.rfengine.evt_base import setup_dmm, ...`
+        module = node.module
+        if not isinstance(module, cst.Attribute):
+            return
+        # Build the dotted-name string.
+        if self._dotted_name(module) != "openflow.rfengine.evt_base":
+            return
+        if isinstance(node.names, cst.ImportStar):
+            # `from ... import *` — assume everything is in scope.
+            self._already_imported.update(new for new, _ in _EVT_HELPER_MAP.values())
+            return
+        for alias in node.names:
+            if isinstance(alias.name, cst.Name):
+                self._already_imported.add(alias.name.value)
+
+    @staticmethod
+    def _dotted_name(node: cst.BaseExpression) -> str:
+        parts: list[str] = []
+        while isinstance(node, cst.Attribute):
+            parts.append(node.attr.value)
+            node = node.value
+        if isinstance(node, cst.Name):
+            parts.append(node.value)
+        return ".".join(reversed(parts))
+
+    def leave_Call(self, original_node: cst.Call,
+                   updated_node: cst.Call) -> cst.BaseExpression:
+        # Match bare-name calls only: func must be a Name, not Attribute.
+        if not isinstance(updated_node.func, cst.Name):
+            return updated_node
+        old = updated_node.func.value
+        entry = _EVT_HELPER_MAP.get(old)
+        if entry is None:
+            return updated_node
+        new_name, default_arg = entry
+        self._used.add(new_name)
+        # If the call already has args, preserve them; just rename.
+        if updated_node.args:
+            return updated_node.with_changes(func=cst.Name(new_name))
+        # No args — inject the default placeholder.
+        placeholder_call = cst.parse_expression(f"{new_name}({default_arg})")
+        return placeholder_call
+
+    def leave_Module(self, original_node: cst.Module,
+                     updated_node: cst.Module) -> cst.Module:
+        to_import = self._used - self._already_imported
+        if not to_import:
+            return updated_node
+        # Stable ordering for reproducible output.
+        names = sorted(to_import)
+        import_line = (
+            "from openflow.rfengine.evt_base import "
+            + ", ".join(names) + "\n"
+        )
+        import_stmt = cst.parse_statement(import_line)
+        body = list(updated_node.body)
+        insert_at = self._first_non_metadata_index(body)
+        body.insert(insert_at, import_stmt)
+        return updated_node.with_changes(body=tuple(body))
+
+    @staticmethod
+    def _first_non_metadata_index(body: list[cst.BaseStatement]) -> int:
+        """Same heuristic as AddLoggingHeader / RewriteClassDunderName:
+        skip module docstring, existing imports, and __dunder__ metadata."""
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, cst.SimpleStatementLine):
+                if all(isinstance(s, (cst.Import, cst.ImportFrom)) for s in stmt.body):
+                    continue
+                first = stmt.body[0] if stmt.body else None
+                if isinstance(first, cst.Expr) and isinstance(first.value, cst.SimpleString):
+                    continue
+                if isinstance(first, cst.Assign) and len(first.targets) == 1:
+                    t = first.targets[0].target
+                    if isinstance(t, cst.Name) and t.value.startswith("__"):
+                        continue
+            return i
+        return len(body)
