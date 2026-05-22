@@ -113,6 +113,7 @@ module = [
     "openflow.rfengine.testconditions_limits",
     "openflow.rfengine.calibration_file",
     "openflow.dut.ft2232h",
+    "openflow.dut.u300",
 ]
 ignore_errors = true
 
