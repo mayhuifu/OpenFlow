@@ -26,6 +26,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "bench":
         from openflow.bench.cli import cli_main as bench_main
         return bench_main(argv[1:])
+    if argv and argv[0] == "dashboard":
+        from openflow.dashboard.cli import cli_main as dash_main
+        return dash_main(argv[1:])
 
     parser = argparse.ArgumentParser(
         prog="openflow",

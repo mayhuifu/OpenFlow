@@ -54,6 +54,40 @@ class StorageConfig(BaseModel):
     sqlite_path: Path | None = None
 
 
+class ParallelDutConfig(BaseModel):
+    """V5b: one DUT slot in a multi-DUT parallel run.
+
+    Each parallel slot can have its own DUT type / address. The ``tag``
+    is what the per-worker pytest fixture exposes so test code can
+    distinguish which DUT it's running against (e.g. for board-serial-
+    keyed calibration data).
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    tag: str
+    type: Literal["stub", "u300", "ft2232h"] = "stub"
+    ftdi_address: str = ""
+    reg_map_file: str = ""
+    emulation: bool = True
+
+
+class ParallelConfig(BaseModel):
+    """V5b: multi-DUT parallel runs.
+
+    ``duts``: zero-length means single-DUT mode (V1-V4 behavior); else
+    each entry spawns a pytest-xdist worker with that DUT bound.
+
+    ``shared_instruments``: names of instruments (keys in
+    ``OpenFlowConfig.instruments``) that all workers serialize access
+    to via the Coordinator (V5b/coordinator.py). Per-worker exclusive
+    instruments aren't listed here — they're per-DUT.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    duts: list[ParallelDutConfig] = Field(default_factory=list)
+    shared_instruments: list[str] = Field(default_factory=list)
+
+
 class BenchConfig(BaseModel):
     """V5a: bench reservation policy.
 
@@ -137,6 +171,11 @@ class OpenFlowConfig(BaseModel):
     # preserve V1-V4 behavior for engineers who haven't opted into the
     # coordination layer.
     bench: BenchConfig = Field(default_factory=BenchConfig)
+
+    # V5b: multi-DUT parallel runs. Empty duts list = single-DUT (V1-V4
+    # behavior unchanged). Engineers populate this when they want to
+    # run tests against multiple DUTs in parallel via pytest-xdist.
+    parallel: ParallelConfig = Field(default_factory=ParallelConfig)
 
 
 # --- YAML loader ---------------------------------------------------------------
