@@ -1,23 +1,29 @@
-"""Placeholder instrument classes — real ports land in V2."""
+"""Placeholder instrument classes — real ports land in V2.
+
+V1f exception: DMM is now an alias for the real ``DMMKeysight34461A`` driver
+(see openflow/instruments/stubs.py). The stub-behavior tests below cover the
+remaining five placeholders. A separate test pins the DMM alias.
+"""
 import pytest
 
 from openflow.instruments.base import Instrument
+from openflow.instruments.dmm_keysight import DMMKeysight34461A
 from openflow.instruments.stubs import DMM, OSC, PSU, SA, SG, WFG
 
 
-@pytest.mark.parametrize("cls", [WFG, DMM, PSU, OSC, SG, SA])
+@pytest.mark.parametrize("cls", [WFG, PSU, OSC, SG, SA])
 def test_each_stub_is_subclass_of_Instrument(cls):
     assert issubclass(cls, Instrument)
 
 
-@pytest.mark.parametrize("cls", [WFG, DMM, PSU, OSC, SG, SA])
+@pytest.mark.parametrize("cls", [WFG, PSU, OSC, SG, SA])
 def test_each_stub_instantiates_with_resource_arg(cls):
     inst = cls("TCPIP::1::INSTR")
     assert inst.resource == "TCPIP::1::INSTR"
 
 
 @pytest.mark.parametrize("cls,name", [
-    (WFG, "WFG"), (DMM, "DMM"), (PSU, "PSU"),
+    (WFG, "WFG"), (PSU, "PSU"),
     (OSC, "OSC"), (SG, "SG"), (SA, "SA"),
 ])
 def test_open_raises_NotImplementedError_naming_class_and_V2(cls, name):
@@ -29,7 +35,14 @@ def test_open_raises_NotImplementedError_naming_class_and_V2(cls, name):
     assert "V2" in msg
 
 
-@pytest.mark.parametrize("cls", [WFG, DMM, PSU, OSC, SG, SA])
+@pytest.mark.parametrize("cls", [WFG, PSU, OSC, SG, SA])
 def test_close_is_noop(cls):
     inst = cls("res")
     inst.close()  # must not raise
+
+
+def test_dmm_alias_points_at_real_keysight_driver():
+    """V1f: the ``DMM`` symbol exposed by stubs.py is now a re-export of the
+    real Keysight 34461A driver, not a placeholder. Migrated tests that
+    import DMM keep working; the underlying class is the real driver."""
+    assert DMM is DMMKeysight34461A

@@ -85,25 +85,40 @@ class DUT_U300(Dut):
 
         In V1b emulation mode, this is a no-op (the source's body relied on the
         rfd_simulator register-map import, which is OpenTAP-specific and not
-        bundled into V1b). Real hardware path will be re-introduced when the
-        rfd_simulator port lands.
+        bundled into V1b).
+
+        V1f audit: on the real-hardware path this now raises
+        ``NotImplementedError`` rather than silently warning-and-returning.
+        The source-level body performs the RFEB1 + RFHB init sequence via
+        ``rfd_simulator`` register writes; without that port wired up the
+        only safe behavior is to fail loudly so the engineer doesn't
+        mistake the V1b warning for a successful init.
         """
         if self.emulation:
             self.log.info("DUT_U300.cmd_initialize: emulation no-op")
             return
-
-        self.log.warning(
-            "cmd_initialize: rfd_simulator register-map import path not ported in V1b. "
-            "Engineer must wire real init flow before bench validation."
-        )
+        raise NotImplementedError(
+            "DUT_U300.cmd_initialize: the rfd_simulator register-map init "
+            "path from the original UMT_DUTs/DUT_U300.py is not yet ported. "
+            "Engineer must wire the real init flow (or set "
+            "config.dut.emulation: true to bypass) before bench validation.")
 
     # rfTxStop
     def set_rfTxStop(self) -> None:
-        """Configure TX Stop."""
+        """Configure TX Stop.
+
+        V1f audit: on real hardware this raises ``NotImplementedError``
+        rather than silently no-op'ing — the source-level body programs
+        RFIC + RFFE stop registers, and silently skipping that leaves the
+        DUT in an undefined state at the end of the test.
+        """
         if self.emulation:
             self.log.info("DUT_U300.set_rfTxStop: emulation no-op")
             return
-        self.log.warning("set_rfTxStop: not yet ported for real hardware in V1b")
+        raise NotImplementedError(
+            "DUT_U300.set_rfTxStop: real-hardware Tx-stop register sequence "
+            "not yet ported from UMT_DUTs/DUT_U300.py. Engineer must port "
+            "before bench validation (or set config.dut.emulation: true).")
 
     # rfTxPower
     def set_rfTxPower(
@@ -138,8 +153,17 @@ class DUT_U300(Dut):
             # Canned values: target met exactly, no LUT info, zero DAC backoff.
             return (ul_powers_dBm, -1, -1, 0.0)
 
-        self.log.warning("set_rfTxPower: not yet ported for real hardware in V1b")
-        return (ul_powers_dBm, -1, -1, 0.0)
+        # V1f audit: previously this silently returned the same canned
+        # tuple on bench, which would mask a missing port — the engineer
+        # would see "tx_power=0.0 dBm exactly" in every result row and
+        # assume the RFIC was working. Now it fails loudly.
+        raise NotImplementedError(
+            "DUT_U300.set_rfTxPower: real-hardware RFIC + RFFE power-set "
+            "sequence not yet ported from UMT_DUTs/DUT_U300.py. The method "
+            "returns a (pwr, rfic_lut_idx, pa_lut_idx, dac_bo) tuple — "
+            "until the real implementation lands the only safe behavior "
+            "is to fail. Set config.dut.emulation: true to use canned "
+            f"values during framework debugging (target was {ul_powers_dBm} dBm).")
 
     def set_arb_power_dBFSrms(
         self,

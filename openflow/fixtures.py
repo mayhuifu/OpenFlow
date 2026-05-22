@@ -14,7 +14,8 @@ from openflow.config import OpenFlowConfig, load_config
 from openflow.dut.base import Dut
 from openflow.errors import InstrumentConnectError
 from openflow.instruments.cmw100 import CMW100
-from openflow.instruments.stubs import DMM, WFG
+from openflow.instruments.dmm_keysight import DMMKeysight34461A
+from openflow.instruments.stubs import WFG
 from openflow.results import ResultsPublisher
 
 if TYPE_CHECKING:
@@ -83,19 +84,36 @@ def wfg(config: OpenFlowConfig) -> WFG:
 
 
 @pytest.fixture(scope="session")
-def dmm_c(config: OpenFlowConfig) -> DMM:
-    """V1a placeholder — DMM (current) real port lands in V2."""
+def dmm_c(config: OpenFlowConfig) -> Generator[DMMKeysight34461A, None, None]:
+    """Keysight 34461A DMM session for current measurements.
+
+    Resource strings starting with 'MOCK' route to emulation mode (no pyvisa,
+    canned readings) — used by CI and by tests that don't actually exercise
+    the DMM. Real resources (e.g. 'TCPIP0::192.168.1.50::INSTR') open a
+    pyvisa session and talk to the bench DMM.
+    """
     inst_cfg = config.instruments.get("dmm_c")
     resource = inst_cfg.resource if inst_cfg is not None else ""
-    return DMM(resource)
+    is_emul = resource.startswith("MOCK") or not resource
+    dmm = DMMKeysight34461A(resource, is_emulation=is_emul)
+    dmm.open()
+    yield dmm
+    dmm.close()
 
 
 @pytest.fixture(scope="session")
-def dmm_v(config: OpenFlowConfig) -> DMM:
-    """V1a placeholder — DMM (voltage) real port lands in V2."""
+def dmm_v(config: OpenFlowConfig) -> Generator[DMMKeysight34461A, None, None]:
+    """Keysight 34461A DMM session for voltage measurements.
+
+    Same routing rules as ``dmm_c`` — MOCK prefix or empty resource → emulation.
+    """
     inst_cfg = config.instruments.get("dmm_v")
     resource = inst_cfg.resource if inst_cfg is not None else ""
-    return DMM(resource)
+    is_emul = resource.startswith("MOCK") or not resource
+    dmm = DMMKeysight34461A(resource, is_emulation=is_emul)
+    dmm.open()
+    yield dmm
+    dmm.close()
 
 
 @pytest.fixture

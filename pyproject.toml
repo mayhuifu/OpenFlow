@@ -17,6 +17,13 @@ dependencies = [
     # FTDI SPI host-bridge driver for DUT_FT2232H (V1b). Real hardware path
     # uses pyftdi over USB; emulation mode bypasses all I/O.
     "pyftdi>=0.55",
+    # Generic VISA driver for the Keysight 34461A DMM (V1f) and any other
+    # SCPI instrument that doesn't have a vendor SDK. The pure-Python backend
+    # `pyvisa-py` lets the driver work without a NI-VISA install on the bench
+    # (useful for Linux benches); engineers on Windows with NI-VISA installed
+    # can use the default backend.
+    "pyvisa>=1.13",
+    "pyvisa-py>=0.7",
     # R&S Python SDK for CMW100 control (replaces raw PyVISA SCPI).
     # Required at runtime by openflow.instruments.cmw100_a / cmw100_g.
     # Note: PyPI distribution name for the Base package is hyphenated ("rscmw-base"),
