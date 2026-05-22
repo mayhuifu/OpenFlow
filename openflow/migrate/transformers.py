@@ -738,3 +738,71 @@ class AddLoggingHeader(cst.CSTTransformer):
                         continue  # __author__, __version__, etc.
             return i
         return len(body)
+
+
+# --- 14. Bare `in_X` (read) → `config.X` (after self-strip) ------------------
+
+class RewriteInputAttrs(cst.CSTTransformer):
+    """Rewrite bare reads of `in_<name>` to `config.<name>`.
+
+    Skips:
+    - The target of an assignment (`in_band = X` — defines a local, not a read).
+    - Any function where `in_<name>` is locally bound (assigned anywhere
+      in the function body).
+
+    Runs AFTER ConvertClassToTestFunction which strips `self.` prefixes.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Stack of sets — locally-bound `in_*` names per nested function scope.
+        self._local_in_names_stack: list[set[str]] = [set()]
+        # Track assignment-target positions so leave_Name knows to skip them.
+        self._assignment_target_ids: set[int] = set()
+
+    # Track scope: enter a function, push a new set of local names.
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        local_in: set[str] = set()
+        # Find all `in_*` names assigned anywhere in the function body.
+        for n in cst.matchers.findall(
+                node,
+                cst.matchers.Assign(targets=[cst.matchers.AssignTarget(
+                    target=cst.matchers.Name())])):
+            for tgt in n.targets:
+                t = tgt.target
+                if isinstance(t, cst.Name) and t.value.startswith("in_"):
+                    local_in.add(t.value)
+        self._local_in_names_stack.append(local_in)
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef,
+                          updated_node: cst.FunctionDef) -> cst.FunctionDef:
+        self._local_in_names_stack.pop()
+        return updated_node
+
+    # Track assignment targets so we don't rewrite them.
+    def visit_Assign(self, node: cst.Assign) -> None:
+        for target in node.targets:
+            self._mark_target(target.target)
+
+    def _mark_target(self, node: cst.CSTNode) -> None:
+        # Mark this AST node's identity so leave_Name knows to skip it.
+        self._assignment_target_ids.add(id(node))
+        # Handle tuple unpacking: (a, b) = ...
+        if isinstance(node, (cst.Tuple, cst.List)):
+            for elem in node.elements:
+                if isinstance(elem, cst.Element):
+                    self._mark_target(elem.value)
+
+    def leave_Name(self, original_node: cst.Name,
+                   updated_node: cst.Name) -> cst.BaseExpression:
+        name = updated_node.value
+        if not name.startswith("in_") or name == "in_":
+            return updated_node
+        # Skip assignment targets.
+        if id(original_node) in self._assignment_target_ids:
+            return updated_node
+        # Skip if locally defined in the current scope.
+        if self._local_in_names_stack and name in self._local_in_names_stack[-1]:
+            return updated_node
+        # Rewrite: drop the `in_` prefix, build config.<rest>.
+        return cst.Attribute(value=cst.Name("config"), attr=cst.Name(name[3:]))
