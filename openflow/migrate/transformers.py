@@ -806,3 +806,93 @@ class RewriteInputAttrs(cst.CSTTransformer):
             return updated_node
         # Rewrite: drop the `in_` prefix, build config.<rest>.
         return cst.Attribute(value=cst.Name("config"), attr=cst.Name(name[3:]))
+
+
+# --- 15. `results.publish()` (bare) → `results.publish(out_X=out_X, ...)` ----
+
+class RewriteOutputPublish(cst.CSTTransformer):
+    """Rewrite bare `results.publish()` calls to forward all `out_*` names
+    assigned earlier in the enclosing function body.
+
+    Runs after ConvertPublishResult (which emits bare `results.publish()` for
+    every `self.PublishResult()` call in the source).
+    """
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef,
+                          updated_node: cst.FunctionDef) -> cst.FunctionDef:
+        new_body = self._rewrite_block(updated_node.body)
+        return updated_node.with_changes(body=new_body)
+
+    def _rewrite_block(self, block: cst.IndentedBlock) -> cst.IndentedBlock:
+        out_names: list[str] = []  # ordered list of out_* names assigned so far
+        new_statements: list[cst.BaseStatement] = []
+        for stmt in block.body:
+            # Record out_* assignments before processing the statement.
+            self._collect_out_assignments(stmt, out_names)
+            # Rewrite any bare results.publish() inside this statement.
+            new_stmt = self._rewrite_publish_in_statement(stmt, out_names)
+            new_statements.append(new_stmt)
+        return block.with_changes(body=tuple(new_statements))
+
+    def _collect_out_assignments(self, stmt: cst.BaseStatement,
+                                 out_names: list[str]) -> None:
+        # Find direct `out_X = ...` assignments at the statement level.
+        # Also handle tuple unpacking `out_a, out_b = ...`.
+        if isinstance(stmt, cst.SimpleStatementLine):
+            for sub in stmt.body:
+                if isinstance(sub, cst.Assign):
+                    for target in sub.targets:
+                        self._collect_target_names(target.target, out_names)
+
+    def _collect_target_names(self, target: cst.CSTNode, out_names: list[str]) -> None:
+        if isinstance(target, cst.Name):
+            if target.value.startswith("out_") and target.value not in out_names:
+                out_names.append(target.value)
+        elif isinstance(target, (cst.Tuple, cst.List)):
+            for elem in target.elements:
+                if isinstance(elem, cst.Element):
+                    self._collect_target_names(elem.value, out_names)
+
+    def _rewrite_publish_in_statement(self, stmt: cst.BaseStatement,
+                                      out_names: list[str]) -> cst.BaseStatement:
+        if not isinstance(stmt, cst.SimpleStatementLine):
+            return stmt
+        new_body: list[cst.BaseSmallStatement] = []
+        for sub in stmt.body:
+            replacement = self._maybe_rewrite_publish_call(sub, out_names)
+            new_body.append(replacement if replacement is not None else sub)
+        return stmt.with_changes(body=tuple(new_body))
+
+    def _maybe_rewrite_publish_call(self, sub: cst.BaseSmallStatement,
+                                    out_names: list[str]
+                                    ) -> cst.BaseSmallStatement | None:
+        if not isinstance(sub, cst.Expr) or not isinstance(sub.value, cst.Call):
+            return None
+        call = sub.value
+        # Must be `results.publish(...)`.
+        func = call.func
+        if not (isinstance(func, cst.Attribute)
+                and isinstance(func.value, cst.Name)
+                and func.value.value == "results"
+                and isinstance(func.attr, cst.Name)
+                and func.attr.value == "publish"):
+            return None
+        # Only rewrite bare calls (no existing args).
+        if call.args:
+            return None
+        if not out_names:
+            return None
+        # Build new kwargs list.
+        new_args = tuple(
+            cst.Arg(
+                value=cst.Name(name),
+                keyword=cst.Name(name),
+                equal=cst.AssignEqual(
+                    whitespace_before=cst.SimpleWhitespace(""),
+                    whitespace_after=cst.SimpleWhitespace("")),
+                comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                if i < len(out_names) - 1 else cst.MaybeSentinel.DEFAULT,
+            )
+            for i, name in enumerate(out_names)
+        )
+        return cst.Expr(value=call.with_changes(args=new_args))
