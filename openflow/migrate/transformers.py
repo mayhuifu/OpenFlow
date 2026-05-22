@@ -1024,3 +1024,44 @@ class RewriteBoardSerials(cst.CSTTransformer):
             value=cst.Name("config"),
             attr=cst.Name(_BOARD_SERIAL_MAP[name]),
         )
+
+
+# --- 17. Rename legacy config.<old_input_name> → config.<new_field_name> ----
+
+# OpenTAP input properties for file-path inputs used names ending in `_config`.
+# OpenFlowConfig (pydantic) uses `<thing>_path` for the same fields. This map
+# is the surface where the two naming conventions meet.
+#
+# Add a new entry whenever a *_config input name shows up in a migrated test
+# that should map to a different OpenFlowConfig field.
+_CONFIG_NAME_MAP: dict[str, str] = {
+    "conditions_limits_config": "limits_path",
+    "deembedding_config": "deembedding_path",
+    "calibration_file_config": "calibration_path",
+}
+
+
+class RewriteConfigNames(cst.CSTTransformer):
+    """Rewrite ``config.<old_name>`` → ``config.<new_name>`` for the inputs
+    whose OpenTAP-Python name differs from the OpenFlowConfig field name.
+
+    Runs AFTER RewriteInputAttrs (which is what creates ``config.<X>``
+    attribute access in the first place from bare ``in_X`` reads). Order
+    inside the pipeline: RewriteInputAttrs → RewriteConfigNames → ...
+
+    Only rewrites Attribute nodes whose value is exactly the Name "config" —
+    so ``obj.deembedding_config`` and ``self.calibration_file_config`` are
+    left alone.
+    """
+
+    def leave_Attribute(self, original_node: cst.Attribute,
+                        updated_node: cst.Attribute) -> cst.BaseExpression:
+        # Only touch `config.<X>` (i.e. .value is a bare Name == "config").
+        if not (isinstance(updated_node.value, cst.Name)
+                and updated_node.value.value == "config"):
+            return updated_node
+        old = updated_node.attr.value
+        new = _CONFIG_NAME_MAP.get(old)
+        if new is None:
+            return updated_node
+        return updated_node.with_changes(attr=cst.Name(new))

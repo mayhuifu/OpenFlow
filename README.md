@@ -23,7 +23,7 @@ remains, gated on porting `DUT_U300` + `DUT_FT2232H` from the existing
 2. **YAML config loader** with pydantic v2 typed validation (`openflow.config`).
 3. **CMW100 driver** (`openflow.instruments.cmw100`) — port of `UMT_Instruments/CMW100.py` minus OpenTAP, using R&S's official Python SDK (`RsCmwGprfGen`, `RsCmwGprfMeas`, `RsCmwNrFr1Meas`, etc.). The TX-EVM subset of measurements is ported (`setup_NrTx`, `meas_NrTxAll`, `meas_NrTxEVM`, `meas_NrTxPower`); other measurements port on demand.
 4. **rfengine helpers** (`openflow.rfengine.{deembedding,testconditions_limits,calibration_file}`) — ports of the three loaders from `U300_RFEngine/`.
-5. **Migration CLI:** `openflow migrate <old_test.py>` rewrites an OpenTAP-Python test into a bare-metal pytest test using libcst. 11 transformer stages.
+5. **Migration CLI:** `openflow migrate <old_test.py>` rewrites an OpenTAP-Python test into a bare-metal pytest test using libcst. 17 transformer stages (11 in V1a + 5 in V1c + 1 in V1d).
 6. **Migrated demo:** `tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py` (output of the migrator on the real TX EVM source), collects cleanly via `pytest --collect-only`.
 
 ## Quick taste

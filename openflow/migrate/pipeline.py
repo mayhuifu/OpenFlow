@@ -13,6 +13,7 @@ from openflow.migrate.transformers import (
     ConvertVerdictCalls,
     ExtractTestcaseId,
     RewriteBoardSerials,
+    RewriteConfigNames,
     RewriteImportPaths,
     RewriteInputAttrs,
     RewriteOutputPublish,
@@ -32,7 +33,7 @@ class MigrationResult:
 
 
 def migrate_source(source: str) -> MigrationResult:
-    """Run all 16 transformers in order, return the rewritten code + metadata.
+    """Run all 17 transformers in order, return the rewritten code + metadata.
 
     Pipeline order matters:
       - Phase 1 strips OpenTAP scaffolding + collects metadata (instruments, inputs).
@@ -65,9 +66,10 @@ def migrate_source(source: str) -> MigrationResult:
         # V1c additions — must run AFTER the class collapse and base rewrites.
         AddLoggingHeader(),            # 12. inject import logging + logger = ... (if needed)
         RewriteInputAttrs(),           # 13. bare in_X reads → config.X
-        RewriteBoardSerials(),         # 14. RFEB_SN/RFHB_SN → config.rfeb_sn/rfhb_sn
-        RewriteOutputPublish(),        # 15. results.publish() → results.publish(out_X=out_X, ...)
-        StripBareExcept(),             # 16. bare `except:` → `except Exception:`
+        RewriteConfigNames(),          # 14. config.<old_input> → config.<new_field>
+        RewriteBoardSerials(),         # 15. RFEB_SN/RFHB_SN → config.rfeb_sn/rfhb_sn
+        RewriteOutputPublish(),        # 16. results.publish() → results.publish(out_X=out_X, ...)
+        StripBareExcept(),             # 17. bare `except:` → `except Exception:`
     )
     return MigrationResult(code=code,
                            instrument_fixtures=inst.instrument_names,
