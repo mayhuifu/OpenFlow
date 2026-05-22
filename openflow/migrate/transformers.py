@@ -1291,3 +1291,192 @@ class RewriteEvtHelperCalls(cst.CSTTransformer):
                         continue
             return i
         return len(body)
+
+
+# --- 21. for x in iterable: ... → @pytest.mark.parametrize -----------------
+
+# Instrument-fixture object names that, when called as `<name>.method()` inside
+# a loop body, signal "this loop has per-iteration setup side effects —
+# don't lift". Keep this list narrow so we only veto on real instrument calls,
+# not on e.g. `results.publish(...)` which is exactly what parametrize cases do.
+_INSTRUMENT_FIXTURE_NAMES: set[str] = {
+    "dut", "cmw100", "wfg", "sg", "sa", "dmm_c", "dmm_v", "psu", "osc",
+}
+
+
+class RewriteSweepLoops(cst.CSTTransformer):
+    """Lift simple outer ``for x in iterable:`` loops into
+    ``@pytest.mark.parametrize`` decorators.
+
+    Conservative heuristic — only lifts loops that:
+
+    1. Live directly inside the body of a ``def test_*`` function
+       (one level deep — no nested-loop or if-inside-function cases).
+    2. Have an iterable that is a literal list/tuple, a ``range(...)``
+       call, or a ``np.arange(...)`` call. Other iterables (computed
+       lists, generator expressions, attribute accesses) are
+       left alone — they may have side effects we can't infer.
+    3. Have a body where every statement is either:
+       - a ``results.publish(...)`` call, OR
+       - an ``assert ...``, OR
+       - a pure assignment that doesn't reference instrument fixtures
+       …and crucially, **no** statement calls a method on an
+       instrument-fixture object (see ``_INSTRUMENT_FIXTURE_NAMES``).
+    4. Are the **first** liftable loop in the function (multiple-loop
+       cases stay manual to avoid surprising cartesian-product behavior).
+
+    When the heuristic matches, the transformer:
+
+    - Adds the loop variable to the function's parameter list.
+    - Prepends ``@pytest.mark.parametrize("<var>", <iterable>)`` to
+      the function's decorator stack.
+    - Replaces the loop with its body (unindented one level).
+    """
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef,
+                          updated_node: cst.FunctionDef) -> cst.CSTNode:
+        if not updated_node.name.value.startswith("test_"):
+            return updated_node
+
+        body = list(updated_node.body.body)
+        for idx, stmt in enumerate(body):
+            if not isinstance(stmt, cst.For):
+                continue
+            lift = self._try_lift(stmt)
+            if lift is None:
+                continue
+            loop_var, iterable_expr, new_body_statements = lift
+
+            new_function_body = body[:idx] + new_body_statements + body[idx + 1:]
+            new_indented_block = updated_node.body.with_changes(
+                body=tuple(new_function_body))
+
+            new_params = updated_node.params.with_changes(
+                params=(*updated_node.params.params,
+                        cst.Param(name=cst.Name(loop_var))))
+
+            parametrize_decorator = cst.Decorator(
+                decorator=cst.parse_expression(
+                    f"pytest.mark.parametrize({loop_var!r}, "
+                    f"{self._render_iterable(iterable_expr)})"))
+            new_decorators = (parametrize_decorator, *updated_node.decorators)
+
+            return updated_node.with_changes(
+                body=new_indented_block,
+                params=new_params,
+                decorators=new_decorators)
+
+        return updated_node
+
+    @staticmethod
+    def _render_iterable(node: cst.BaseExpression) -> str:
+        return cst.Module(body=[]).code_for_node(node)
+
+    def _try_lift(self, for_node: cst.For
+                  ) -> tuple[str, cst.BaseExpression, list[cst.BaseStatement]] | None:
+        if not isinstance(for_node.target, cst.Name):
+            return None
+        loop_var = for_node.target.value
+        if not self._is_pure_iterable(for_node.iter):
+            return None
+        if not isinstance(for_node.body, cst.IndentedBlock):
+            return None
+        for stmt in for_node.body.body:
+            if not self._is_liftable_statement(stmt):
+                return None
+        return loop_var, for_node.iter, list(for_node.body.body)
+
+    @staticmethod
+    def _is_pure_iterable(node: cst.BaseExpression) -> bool:
+        if isinstance(node, (cst.List, cst.Tuple)):
+            return True
+        if isinstance(node, cst.Call):
+            func = node.func
+            if isinstance(func, cst.Name) and func.value == "range":
+                return True
+            if (isinstance(func, cst.Attribute)
+                    and isinstance(func.value, cst.Name)
+                    and func.value.value == "np"
+                    and func.attr.value == "arange"):
+                return True
+        return False
+
+    def _is_liftable_statement(self, stmt: cst.BaseStatement) -> bool:
+        if isinstance(stmt, (cst.For, cst.While, cst.Try, cst.With, cst.If)):
+            return False
+        for call in cst.matchers.findall(stmt, cst.matchers.Call()):
+            if self._is_instrument_method_call(call):
+                return False
+        # Also veto on plain assignments to non-trivial RHS (e.g. y = x * 2).
+        # Allow only result.publish(...) calls + simple `assert ...`.
+        if isinstance(stmt, cst.SimpleStatementLine):
+            for sub in stmt.body:
+                if isinstance(sub, cst.Assign):
+                    # Reject any assignment — too easy to break.
+                    return False
+        return True
+
+    @staticmethod
+    def _is_instrument_method_call(call: cst.Call) -> bool:
+        func = call.func
+        if not isinstance(func, cst.Attribute):
+            return False
+        receiver = func.value
+        if not isinstance(receiver, cst.Name):
+            return False
+        return receiver.value in _INSTRUMENT_FIXTURE_NAMES
+
+
+# --- 22. Print_Summary(...) → logger.info(...) ---------------------------
+
+class RewritePrintSummary(cst.CSTTransformer):
+    """Rewrite bare-name ``Print_Summary(...)`` calls into ``logger.info(...)``.
+
+    The OpenTAP ``Print_Summary`` helper was a debug-aid log convenience
+    on a TestStep base class. After ConvertClassToTestFunction strips
+    ``self.`` the call becomes a bare-name reference that would
+    NameError at runtime.
+
+    Rewrite preserves the keyword arguments as format-string arguments:
+
+      Print_Summary()                  -> logger.info("Print_Summary")
+      Print_Summary(m='QPSK')          -> logger.info("Print_Summary: m=%s", 'QPSK')
+      Print_Summary(m='QPSK', p=10)    -> logger.info("Print_Summary: m=%s p=%s", 'QPSK', 10)
+
+    Bare-name only — ``obj.Print_Summary()`` is left alone.
+
+    AddLoggingHeader (transformer #13) already guarantees ``logger`` is
+    in scope; this transformer doesn't need to inject an import.
+    """
+
+    def leave_Call(self, original_node: cst.Call,
+                   updated_node: cst.Call) -> cst.BaseExpression:
+        # Bare-name match only.
+        if not isinstance(updated_node.func, cst.Name):
+            return updated_node
+        if updated_node.func.value != "Print_Summary":
+            return updated_node
+
+        # Build the format string + value args from the original kwargs.
+        kwarg_names: list[str] = []
+        value_args: list[cst.Arg] = []
+        for arg in updated_node.args:
+            if isinstance(arg.keyword, cst.Name):
+                kwarg_names.append(arg.keyword.value)
+                value_args.append(cst.Arg(value=arg.value))
+            # Positional args fall through — Print_Summary in source only
+            # took kwargs, but we tolerate the unusual case by passing values
+            # through with a generic placeholder.
+            else:
+                kwarg_names.append("?")
+                value_args.append(cst.Arg(value=arg.value))
+
+        if kwarg_names:
+            format_str = "Print_Summary: " + " ".join(f"{k}=%s" for k in kwarg_names)
+        else:
+            format_str = "Print_Summary"
+
+        format_arg = cst.Arg(value=cst.SimpleString(f'"{format_str}"'))
+        new_args = (format_arg, *value_args)
+        new_func = cst.Attribute(value=cst.Name("logger"), attr=cst.Name("info"))
+        return updated_node.with_changes(func=new_func, args=new_args)

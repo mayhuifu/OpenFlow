@@ -24,6 +24,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
                     help="Path to OpenFlow YAML configuration file.")
     group.addoption("--openflow-report", action="store", default=None,
                     help="Path to write the JSON session report.")
+    group.addoption("--openflow-html-report", action="store", default=None,
+                    help="Path to write the HTML session report (V2). "
+                         "Requires --openflow-report (the HTML is rendered "
+                         "from the JSON output).")
 
 
 def pytest_configure(config: pytest.Config) -> None:  # noqa: F811
@@ -43,8 +47,20 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     report_path = session.config.getoption("--openflow-report")
-    if not report_path:
+    html_path = session.config.getoption("--openflow-html-report")
+    if not report_path and not html_path:
         return
+
+    # If only HTML is requested, write JSON to a sibling temp path so the
+    # HTML renderer has something to consume — and clean it up after.
+    import tempfile
+    json_was_temporary = False
+    if not report_path and html_path:
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        report_path = tmp.name
+        json_was_temporary = True
+
     publishers: list[ResultsPublisher] = getattr(session, "_openflow_publishers", [])
     write_session_report(
         path=report_path,
@@ -55,3 +71,11 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             "failed": session.testsfailed,
         },
     )
+
+    if html_path:
+        from openflow.report.html import HTMLReportRenderer
+        HTMLReportRenderer(report_path).render(html_path)
+
+    if json_was_temporary:
+        from pathlib import Path
+        Path(report_path).unlink(missing_ok=True)
