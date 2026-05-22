@@ -92,14 +92,23 @@ uv run pytest tests/test_u300b0_rfeb_evt_tx_evm_power_sweep.py \
 
 ## Bench bring-up (recommended starting point on new hardware)
 
-Three smoke tests in [`tests/bench_bringup/`](./tests/bench_bringup/) isolate
-each component so failures point at one cause:
+> **Bringing up a full bench (V1c → V5)?** Use the complete operational runbook:
+> [**`docs/bench-bringup-v1c-to-v5.md`**](./docs/bench-bringup-v1c-to-v5.md) —
+> phase-by-phase procedure with 40+ labelled test cases (TC-V0-01 … TC-INT-01),
+> equipment checklist, troubleshooting tables, and sign-off page.
+
+The bring-up smoke tests in [`tests/bench_bringup/`](./tests/bench_bringup/)
+isolate each instrument so failures point at one cause:
 
 | # | Test | What it proves |
 |---|---|---|
 | 1 | `test_01_cmw100_connectivity.py` | LAN + SDK + VISA path is healthy |
 | 2 | `test_02_cmw100_nr_diagnostics.py` | NR FR1 Meas license + app state (diagnostic-only) |
 | 3 | `test_03_cmw100_tx_evm_smoke.py` | Full CMW100 NR measurement chain (5-point sweep) |
+| 4 | `test_04_dmm_connectivity.py` | Keysight 34461A DMM (V1f) |
+| 5 | `test_05_sg_connectivity.py` | R&S SMW200A signal generator (V3) |
+| 6 | `test_06_sa_connectivity.py` | Keysight N9020B / R&S FSW spectrum analyzer (V3) |
+| 7 | `test_07_wfg_connectivity.py` | Keysight 33500B waveform generator (V3) |
 
 See [`tests/bench_bringup/README.md`](./tests/bench_bringup/README.md) for the
 recommended order and troubleshooting tips.
