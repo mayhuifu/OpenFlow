@@ -8,12 +8,35 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
-class CMW100Config(BaseModel):
-    """VISA connection info for a CMW100 instrument."""
+class InstrumentConfig(BaseModel):
+    """VISA connection info + optional driver-model selector for an instrument.
+
+    V3 generalization of the V1a ``CMW100Config``. The ``model`` field is
+    optional — fixtures fall back to their default driver class when it's
+    absent. Example YAML:
+
+        instruments:
+          cmw100:
+            resource: "TCPIP0::192.168.1.10::INSTR"
+            # CMW100 has only one driver, so model is unused
+          sa:
+            resource: "TCPIP0::192.168.1.20::INSTR"
+            model: "keysight_n9020b"   # selects KeysightN9020B over RsFsw
+          dmm_c:
+            resource: "TCPIP0::192.168.1.30::INSTR"
+            # model: defaults to "keysight_34461a"
+    """
     model_config = ConfigDict(extra="forbid")
 
     resource: str = Field(min_length=1,
                           description="PyVISA resource string, e.g. 'TCPIP::192.168.1.100::INSTR'")
+    model: str | None = Field(default=None,
+                              description="Optional driver-model selector for "
+                                          "multi-vendor instruments (e.g. 'keysight_n9020b').")
+
+
+# V1a backward-compat alias. New code should use InstrumentConfig directly.
+CMW100Config = InstrumentConfig
 
 
 class DutConfig(BaseModel):
@@ -32,8 +55,8 @@ class OpenFlowConfig(BaseModel):
     """Top-level OpenFlow YAML config consumed by the `config` fixture."""
     model_config = ConfigDict(extra="forbid")
 
-    # Instruments (V1a: CMW100 only)
-    instruments: dict[str, CMW100Config]
+    # Instruments — V1a was CMW100 only, V3 generalizes to any SCPI instrument.
+    instruments: dict[str, InstrumentConfig]
 
     # Band + waveform configuration
     band: str
