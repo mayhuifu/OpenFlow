@@ -39,6 +39,21 @@ class InstrumentConfig(BaseModel):
 CMW100Config = InstrumentConfig
 
 
+class StorageConfig(BaseModel):
+    """V4: persistent results storage. Off by default during the v0.9.x
+    beta period — engineers explicitly opt in with ``storage.persist: true``.
+
+    SQLite is the local default. The optional ``postgres_dsn`` enables
+    best-effort writes to a shared PostgreSQL (failures are warnings, not
+    test failures — local SQLite stays the source of truth).
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    persist: bool = False
+    postgres_dsn: str | None = None
+    sqlite_path: Path | None = None
+
+
 class DutConfig(BaseModel):
     """DUT configuration. type='stub' means the generic Dut base; concrete subclasses
     in V1b are 'u300' (DUT_U300) and 'ft2232h' (DUT_FT2232h_V03)."""
@@ -90,6 +105,10 @@ class OpenFlowConfig(BaseModel):
 
     # DUT selection (V1a default: stub returns base Dut; V1b: u300, ft2232h)
     dut: DutConfig = Field(default_factory=DutConfig)
+
+    # V4: persistent results (SQLite default, optional PostgreSQL).
+    # storage.persist defaults to False during the v0.9.x beta period.
+    storage: StorageConfig = Field(default_factory=StorageConfig)
 
 
 # --- YAML loader ---------------------------------------------------------------

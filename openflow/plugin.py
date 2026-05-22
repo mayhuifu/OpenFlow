@@ -17,6 +17,8 @@ from openflow.results import ResultsPublisher, write_session_report
 if TYPE_CHECKING:
     import pytest
 
+    from openflow.config import OpenFlowConfig
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("openflow", "OpenFlow RF test framework")
@@ -48,14 +50,21 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     report_path = session.config.getoption("--openflow-report")
     html_path = session.config.getoption("--openflow-html-report")
-    if not report_path and not html_path:
+
+    # V4: persistence is engaged when the loaded OpenFlowConfig has
+    # storage.persist=True. Look it up best-effort — if config wasn't
+    # loaded (e.g. the test didn't request the config fixture) we just
+    # skip persistence silently.
+    persist_to_db = _should_persist_to_db(session)
+
+    if not report_path and not html_path and not persist_to_db:
         return
 
-    # If only HTML is requested, write JSON to a sibling temp path so the
-    # HTML renderer has something to consume — and clean it up after.
+    # If only HTML or only DB-persist is requested, write JSON to a temp
+    # path so the downstream consumers have something to read.
     import tempfile
     json_was_temporary = False
-    if not report_path and html_path:
+    if not report_path:
         tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
         tmp.close()
         report_path = tmp.name
@@ -76,6 +85,72 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         from openflow.report.html import HTMLReportRenderer
         HTMLReportRenderer(report_path).render(html_path)
 
+    if persist_to_db:
+        _persist_to_db(session, report_path)
+
     if json_was_temporary:
         from pathlib import Path
         Path(report_path).unlink(missing_ok=True)
+
+
+def _should_persist_to_db(session: pytest.Session) -> bool:
+    """True iff the loaded OpenFlowConfig has storage.persist=True."""
+    cfg = _try_load_config(session)
+    if cfg is None:
+        return False
+    return bool(cfg.storage.persist)
+
+
+def _try_load_config(session: pytest.Session) -> OpenFlowConfig | None:
+    """Best-effort: load the OpenFlow config without requiring the
+    fixture to have been requested by any test."""
+    from pathlib import Path
+
+    from openflow.config import load_config
+
+    path = session.config.getoption("--openflow-config")
+    if not path:
+        return None
+    try:
+        return load_config(Path(path))
+    except Exception:
+        return None
+
+
+def _persist_to_db(session: pytest.Session, json_report_path: str) -> None:
+    """Ingest the just-written JSON report into SQLite (and optionally
+    PostgreSQL if storage.postgres_dsn is set)."""
+    import logging
+    from pathlib import Path
+
+    from openflow.report.db.sqlite_backend import SQLiteBackend
+
+    log = logging.getLogger(__name__)
+    cfg = _try_load_config(session)
+    if cfg is None:
+        return
+
+    # Default sqlite path is `report.db` next to the JSON report.
+    json_path = Path(json_report_path)
+    sqlite_path = (Path(cfg.storage.sqlite_path)
+                   if cfg.storage.sqlite_path is not None
+                   else json_path.parent / "report.db")
+    try:
+        backend = SQLiteBackend(sqlite_path)
+        backend.ensure_schema()
+        backend.ingest_json(json_path)
+        log.info("V4 persistence: wrote session to %s", sqlite_path)
+    except Exception as exc:
+        log.warning("V4 persistence: SQLite write failed: %s", exc)
+
+    # Optional best-effort PostgreSQL mirror.
+    if cfg.storage.postgres_dsn:
+        try:
+            from openflow.report.db.postgres_backend import PostgreSQLBackend
+            pg = PostgreSQLBackend(cfg.storage.postgres_dsn)
+            pg.ensure_schema()
+            pg.ingest_json(json_path)
+            log.info("V4 persistence: wrote session to PostgreSQL")
+        except Exception as exc:
+            log.warning("V4 persistence: PostgreSQL write failed (local "
+                        "SQLite remains source of truth): %s", exc)

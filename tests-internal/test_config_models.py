@@ -84,6 +84,53 @@ def test_openflow_config_with_model_field_in_yaml():
     assert cfg.instruments["cmw100"].model is None
 
 
+def test_storage_config_defaults_to_persist_false():
+    """V4 beta: storage.persist defaults to False; opt in explicitly."""
+    from openflow.config import StorageConfig
+    cfg = StorageConfig()
+    assert cfg.persist is False
+    assert cfg.postgres_dsn is None
+    assert cfg.sqlite_path is None
+
+
+def test_openflow_config_loads_without_storage_section():
+    """V4 backward-compat: existing YAMLs without `storage:` still load."""
+    cfg = OpenFlowConfig.model_validate({
+        "instruments": {"cmw100": {"resource": "TCPIP::1::INSTR"}},
+        "band": "n78", "modulation": "16QAM", "rfbw_Hz": 100_000_000,
+        "dl_freq_pll_Hz": 3_600_000_000, "ul_freq_pll_Hz": 3_500_000_000,
+        "dl_config": "RX0_ANT0", "dl_config_active": "RX0_ANT0",
+        "ul_config": "TX0_ANT0", "scs_Hz": 30_000,
+        "rb_centre_freq_Hz": 3_600_000_000, "freq_offset_dl_Hz": 0,
+        "rx_gain_dB": 30, "tx_power_dBm": 0.0, "tx_power_backoff_dB": 5.0,
+        "rx_power_backoff_dB": 10.0, "tx_dac_backoff_dBFS": 6.0,
+        "board_config": "RFEB1",
+        "limits_path": "x", "deembedding_path": "y", "calibration_path": "z",
+    })
+    assert cfg.storage.persist is False
+
+
+def test_openflow_config_accepts_storage_section():
+    cfg = OpenFlowConfig.model_validate({
+        "instruments": {"cmw100": {"resource": "TCPIP::1::INSTR"}},
+        "band": "n78", "modulation": "16QAM", "rfbw_Hz": 100_000_000,
+        "dl_freq_pll_Hz": 3_600_000_000, "ul_freq_pll_Hz": 3_500_000_000,
+        "dl_config": "RX0_ANT0", "dl_config_active": "RX0_ANT0",
+        "ul_config": "TX0_ANT0", "scs_Hz": 30_000,
+        "rb_centre_freq_Hz": 3_600_000_000, "freq_offset_dl_Hz": 0,
+        "rx_gain_dB": 30, "tx_power_dBm": 0.0, "tx_power_backoff_dB": 5.0,
+        "rx_power_backoff_dB": 10.0, "tx_dac_backoff_dBFS": 6.0,
+        "board_config": "RFEB1",
+        "limits_path": "x", "deembedding_path": "y", "calibration_path": "z",
+        "storage": {
+            "persist": True,
+            "postgres_dsn": "postgresql://user@host/db",
+        },
+    })
+    assert cfg.storage.persist is True
+    assert cfg.storage.postgres_dsn == "postgresql://user@host/db"
+
+
 def test_openflow_config_rejects_extra_fields():
     with pytest.raises(ValidationError):
         OpenFlowConfig.model_validate({
