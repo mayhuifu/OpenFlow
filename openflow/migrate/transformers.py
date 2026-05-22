@@ -812,39 +812,104 @@ class RewriteInputAttrs(cst.CSTTransformer):
 
 class RewriteOutputPublish(cst.CSTTransformer):
     """Rewrite bare `results.publish()` calls to forward all `out_*` names
-    assigned earlier in the enclosing function body.
+    assigned earlier in the enclosing function body (including nested blocks).
 
-    Runs after ConvertPublishResult (which emits bare `results.publish()` for
-    every `self.PublishResult()` call in the source).
+    Python scope rules: variables assigned inside loops/if-blocks persist after
+    them, so a `for` loop's `out_a` assignment is visible at any subsequent
+    `results.publish()` whether inside or outside the loop. Function definitions
+    introduce a new scope — their out_* assignments do NOT leak out.
+
+    Runs after ConvertPublishResult.
     """
 
     def leave_FunctionDef(self, original_node: cst.FunctionDef,
                           updated_node: cst.FunctionDef) -> cst.FunctionDef:
-        new_body = self._rewrite_block(updated_node.body)
+        # Each function has its own out_names accumulator.
+        out_names: list[str] = []
+        new_body = self._rewrite_block(updated_node.body, out_names)
         return updated_node.with_changes(body=new_body)
 
-    def _rewrite_block(self, block: cst.IndentedBlock) -> cst.IndentedBlock:
-        out_names: list[str] = []  # ordered list of out_* names assigned so far
+    def _rewrite_block(self, block: cst.IndentedBlock,
+                       out_names: list[str]) -> cst.IndentedBlock:
         new_statements: list[cst.BaseStatement] = []
         for stmt in block.body:
-            # Record out_* assignments before processing the statement.
-            self._collect_out_assignments(stmt, out_names)
-            # Rewrite any bare results.publish() inside this statement.
-            new_stmt = self._rewrite_publish_in_statement(stmt, out_names)
+            new_stmt = self._rewrite_statement(stmt, out_names)
             new_statements.append(new_stmt)
         return block.with_changes(body=tuple(new_statements))
 
-    def _collect_out_assignments(self, stmt: cst.BaseStatement,
-                                 out_names: list[str]) -> None:
-        # Find direct `out_X = ...` assignments at the statement level.
-        # Also handle tuple unpacking `out_a, out_b = ...`.
+    def _rewrite_statement(self, stmt: cst.BaseStatement,
+                           out_names: list[str]) -> cst.BaseStatement:
+        # Simple statement line: collect out_* assignments + rewrite any publish call.
         if isinstance(stmt, cst.SimpleStatementLine):
             for sub in stmt.body:
                 if isinstance(sub, cst.Assign):
                     for target in sub.targets:
                         self._collect_target_names(target.target, out_names)
+            return self._rewrite_publish_in_statement(stmt, out_names)
 
-    def _collect_target_names(self, target: cst.CSTNode, out_names: list[str]) -> None:
+        # Compound statements with nested IndentedBlocks — recurse.
+        if isinstance(stmt, cst.For):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_orelse = (cst.Else(body=self._rewrite_block(stmt.orelse.body, out_names))
+                          if stmt.orelse and isinstance(stmt.orelse.body, cst.IndentedBlock)
+                          else stmt.orelse)
+            return stmt.with_changes(body=new_body, orelse=new_orelse)
+
+        if isinstance(stmt, cst.While):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_orelse = (cst.Else(body=self._rewrite_block(stmt.orelse.body, out_names))
+                          if stmt.orelse and isinstance(stmt.orelse.body, cst.IndentedBlock)
+                          else stmt.orelse)
+            return stmt.with_changes(body=new_body, orelse=new_orelse)
+
+        if isinstance(stmt, cst.If):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_orelse = self._rewrite_if_orelse(stmt.orelse, out_names) if stmt.orelse else None
+            return stmt.with_changes(body=new_body, orelse=new_orelse)
+
+        if isinstance(stmt, cst.Try):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            new_handlers = tuple(
+                h.with_changes(body=self._rewrite_block(h.body, out_names))
+                if isinstance(h.body, cst.IndentedBlock) else h
+                for h in stmt.handlers
+            )
+            new_orelse = (cst.Else(body=self._rewrite_block(stmt.orelse.body, out_names))
+                          if stmt.orelse and isinstance(stmt.orelse.body, cst.IndentedBlock)
+                          else stmt.orelse)
+            new_finally = (cst.Finally(body=self._rewrite_block(stmt.finalbody.body, out_names))
+                           if stmt.finalbody and isinstance(stmt.finalbody.body, cst.IndentedBlock)
+                           else stmt.finalbody)
+            return stmt.with_changes(body=new_body, handlers=new_handlers,
+                                     orelse=new_orelse, finalbody=new_finally)
+
+        if isinstance(stmt, cst.With):
+            new_body = self._rewrite_block(stmt.body, out_names) if isinstance(stmt.body, cst.IndentedBlock) else stmt.body
+            return stmt.with_changes(body=new_body)
+
+        if isinstance(stmt, cst.FunctionDef):
+            # Nested function: NEW scope. Its out_* assignments do not leak.
+            nested_out_names: list[str] = []
+            new_body = self._rewrite_block(stmt.body, nested_out_names)
+            return stmt.with_changes(body=new_body)
+
+        # ClassDef and other compound statements: leave alone for now.
+        return stmt
+
+    def _rewrite_if_orelse(self, orelse: cst.Else | cst.If | None,
+                            out_names: list[str]) -> cst.Else | cst.If | None:
+        if orelse is None:
+            return None
+        if isinstance(orelse, cst.If):
+            # elif chain — treat as another If.
+            return self._rewrite_statement(orelse, out_names)  # type: ignore[return-value]
+        if isinstance(orelse, cst.Else):
+            if isinstance(orelse.body, cst.IndentedBlock):
+                return cst.Else(body=self._rewrite_block(orelse.body, out_names))
+        return orelse
+
+    def _collect_target_names(self, target: cst.CSTNode,
+                              out_names: list[str]) -> None:
         if isinstance(target, cst.Name):
             if target.value.startswith("out_") and target.value not in out_names:
                 out_names.append(target.value)
@@ -853,10 +918,8 @@ class RewriteOutputPublish(cst.CSTTransformer):
                 if isinstance(elem, cst.Element):
                     self._collect_target_names(elem.value, out_names)
 
-    def _rewrite_publish_in_statement(self, stmt: cst.BaseStatement,
-                                      out_names: list[str]) -> cst.BaseStatement:
-        if not isinstance(stmt, cst.SimpleStatementLine):
-            return stmt
+    def _rewrite_publish_in_statement(self, stmt: cst.SimpleStatementLine,
+                                      out_names: list[str]) -> cst.SimpleStatementLine:
         new_body: list[cst.BaseSmallStatement] = []
         for sub in stmt.body:
             replacement = self._maybe_rewrite_publish_call(sub, out_names)
@@ -869,7 +932,6 @@ class RewriteOutputPublish(cst.CSTTransformer):
         if not isinstance(sub, cst.Expr) or not isinstance(sub.value, cst.Call):
             return None
         call = sub.value
-        # Must be `results.publish(...)`.
         func = call.func
         if not (isinstance(func, cst.Attribute)
                 and isinstance(func.value, cst.Name)
@@ -877,12 +939,10 @@ class RewriteOutputPublish(cst.CSTTransformer):
                 and isinstance(func.attr, cst.Name)
                 and func.attr.value == "publish"):
             return None
-        # Only rewrite bare calls (no existing args).
         if call.args:
             return None
         if not out_names:
             return None
-        # Build new kwargs list.
         new_args = tuple(
             cst.Arg(
                 value=cst.Name(name),

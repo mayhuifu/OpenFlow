@@ -74,3 +74,64 @@ def test_only_outs_above_publish_are_forwarded():
     # out_b should NOT be in the first call.
     publish_call_line = next(line for line in after.splitlines() if "results.publish" in line)
     assert "out_b" not in publish_call_line
+
+
+def test_recurses_into_for_loop():
+    before = dedent('''
+        def test_x():
+            for i in range(3):
+                out_a = i
+                results.publish()
+    ''')
+    after = transform(before, RewriteOutputPublish())
+    assert "results.publish(out_a=out_a)" in after
+
+
+def test_recurses_into_nested_for_loops():
+    before = dedent('''
+        def test_x():
+            for i in range(3):
+                for j in range(3):
+                    out_a = i
+                    out_b = j
+                    results.publish()
+    ''')
+    after = transform(before, RewriteOutputPublish())
+    assert "results.publish(out_a=out_a, out_b=out_b)" in after
+
+
+def test_recurses_into_if_block():
+    before = dedent('''
+        def test_x():
+            if condition:
+                out_a = 1
+                results.publish()
+    ''')
+    after = transform(before, RewriteOutputPublish())
+    assert "results.publish(out_a=out_a)" in after
+
+
+def test_outs_assigned_in_nested_block_carry_to_outer_publish():
+    before = dedent('''
+        def test_x():
+            for i in range(3):
+                out_a = i
+            results.publish()  # outside the loop — out_a still in scope
+    ''')
+    after = transform(before, RewriteOutputPublish())
+    assert "results.publish(out_a=out_a)" in after
+
+
+def test_nested_function_does_not_pollute_outer_scope():
+    before = dedent('''
+        def test_x():
+            def helper():
+                out_x = 1
+                return out_x
+            results.publish()  # out_x is in helper's scope, not test_x's
+    ''')
+    after = transform(before, RewriteOutputPublish())
+    # `out_x` should NOT be forwarded — it belongs to helper().
+    # Check the publish call's argument list only (not any trailing comment).
+    publish_call = after.split("results.publish")[1].split(")")[0] + ")"
+    assert "out_x" not in publish_call
