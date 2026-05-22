@@ -53,7 +53,7 @@ def test_u300b0_rfeb_evt_tx_evm_power_sweep(cmw100, wfg, dut, dmm_c, dmm_v, conf
 
     # get calibration file data
     cal_file = Calibration_File(config.calibration_file_config, config.rfeb_sn, config.rfhb_sn)
-    i_offset_A, q_offset_A = cal_file.get_iq_dc_offset(config.band_num=dut.get_BandNumber(config.band), config.rfbw_Hz=config.rfbw_Hz)
+    i_offset_A, q_offset_A = cal_file.get_iq_dc_offset(in_band_num=dut.get_BandNumber(config.band), in_rfbw_Hz=config.rfbw_Hz)
     iq_gain_imbalance_dB, iq_phase_imbalance_deg = cal_file.get_iq_gain_phase_imbalance(dut.get_BandNumber(config.band), config.rfbw_Hz)
 
     # setup RFIC+RFFE
@@ -120,9 +120,9 @@ def test_u300b0_rfeb_evt_tx_evm_power_sweep(cmw100, wfg, dut, dmm_c, dmm_v, conf
                 fe_gain_offset_dB = -24
             else:
                 fe_gain_offset_dB = 0
-            cmw100.setup_NrTx(config.band=config.band, config.freq_pll_Hz=config.ul_freq_pll_Hz,
-                                config.rfbw_Hz=config.rfbw_Hz, config.tx_power_dBm=target_tx_power+fe_gain_offset_dB,
-                                config.modulation=modulation, config.ul_config=config.ul_config, config.scs_Hz=config.scs_Hz)
+            cmw100.setup_NrTx(in_band=config.band, in_freq_pll_Hz=config.ul_freq_pll_Hz,
+                                in_rfbw_Hz=config.rfbw_Hz, in_tx_power_dBm=target_tx_power+fe_gain_offset_dB,
+                                in_modulation=modulation, in_ul_config=config.ul_config, in_scs_Hz=config.scs_Hz)
 
             cmw100.meas_NrTxAll()
             tx_power = cmw100.meas_NrTxPower(use_cached=True)
