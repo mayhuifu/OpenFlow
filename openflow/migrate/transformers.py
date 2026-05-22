@@ -422,3 +422,34 @@ class ConvertVerdictCalls(cst.CSTTransformer):
         if isinstance(node, cst.Attribute) and isinstance(node.attr, cst.Name):
             return node.attr.value
         return None
+
+
+# --- 8. self.log.Level(...) → logger.level(...) -------------------------------
+
+_LOG_LEVEL_MAP = {"Info": "info", "Warning": "warning",
+                  "Error": "error", "Debug": "debug"}
+
+
+class ConvertLogCalls(cst.CSTTransformer):
+    """Rewrite ``self.log.Info(x)``/``log.Info(x)`` → ``logger.info(x)``."""
+
+    def leave_Call(self, original_node: cst.Call,
+                   updated_node: cst.Call) -> cst.Call:
+        attr = updated_node.func
+        if not isinstance(attr, cst.Attribute):
+            return updated_node
+        level_name = attr.attr.value if isinstance(attr.attr, cst.Name) else None
+        if level_name not in _LOG_LEVEL_MAP:
+            return updated_node
+        # Verify the base is `<...>.log` (either `self.log` or stripped `log`)
+        base = attr.value
+        is_log = (isinstance(base, cst.Name) and base.value == "log") or (
+            isinstance(base, cst.Attribute)
+            and isinstance(base.attr, cst.Name)
+            and base.attr.value == "log")
+        if not is_log:
+            return updated_node
+        new_func = cst.Attribute(
+            value=cst.Name("logger"),
+            attr=cst.Name(_LOG_LEVEL_MAP[level_name]))
+        return updated_node.with_changes(func=new_func)
