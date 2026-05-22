@@ -1,0 +1,63 @@
+[project]
+name = "openflow"
+version = "0.1.0a1"
+description = "Bare-metal Python test framework for RF/baseband HW automation"
+authors = [{ name = "Huifu Ma", email = "mayhuifu@gmail.com" }]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest>=8.0",
+    "pyvisa>=1.14",
+    "pyvisa-py>=0.7",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+    "libcst>=1.1",
+]
+
+[project.scripts]
+openflow = "openflow.migrate.cli:main"
+
+[project.entry-points.pytest11]
+openflow = "openflow.plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "types-PyYAML",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["openflow"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["pyvisa.*", "libcst.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests-internal", "tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "testcase(id): mark a test with its testcase ID (e.g. U300B0-RFE-EVT-005)",
+]
