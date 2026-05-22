@@ -36,3 +36,18 @@ def test_pipeline_extracts_testcase_id():
     result = migrate_source(source)
     assert "TESTCASE_ID = " in result.code
     assert "U300B0-RFE-EVT-005" in result.code
+
+
+def test_pipeline_renames_legacy_config_field_names():
+    """V1d: the three OpenTAP `*_config` file-path inputs should arrive as
+    OpenFlowConfig `*_path` field names — no manual cleanup needed."""
+    source = Path("tests-internal/fixtures/sample_opentap_tx_evm.py").read_text()
+    result = migrate_source(source)
+    # New names appear.
+    assert "config.limits_path" in result.code
+    assert "config.deembedding_path" in result.code
+    assert "config.calibration_path" in result.code
+    # Old names are gone.
+    assert "conditions_limits_config" not in result.code
+    assert "deembedding_config" not in result.code
+    assert "calibration_file_config" not in result.code

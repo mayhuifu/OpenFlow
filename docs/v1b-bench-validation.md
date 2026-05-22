@@ -159,18 +159,38 @@ the engineer must:
 automatically. What used to be an 8-step manual checklist is now 3 remaining
 steps (4, 6, 7) — all genuine RF engineering judgment.
 
-Original 8 steps, with V1c status:
+**V1d update (2026-05-22):** step 2 is now fully complete — the migrator
+not only strips `self.in_` prefixes but also renames the three legacy
+`*_config` file-path inputs to their `*_path` OpenFlowConfig field names.
 
-| # | Step | V1c status |
+Original 8 steps, with V1c+V1d status:
+
+| # | Step | Status |
 |---|---|---|
 | 1 | Add `import logging` + logger | ✅ Automated by `AddLoggingHeader` transformer |
-| 2 | Replace `self.in_*` → `config.*` | ✅ Automated by `RewriteInputAttrs` transformer |
+| 2 | Replace `self.in_*` → `config.*` (incl. `_config` → `_path` renames) | ✅ Automated by `RewriteInputAttrs` (V1c) + `RewriteConfigNames` (V1d) transformers |
 | 3 | Replace `self.out_*` + `PublishResult()` → locals + `results.publish(**)` | ✅ Automated by `RewriteOutputPublish` transformer (recurses into nested for/if/try blocks) |
 | 4 | Replace inherited helpers (`Setup_DMM`, `Get_DMM`, `Get_Aux`, `Print_Summary`) | ⚠️ Helpers now ported to `openflow.rfengine.evt_base` (V1c-7), but the migrated test still has bare `Setup_DMM()` calls. **Manual step:** add `from openflow.rfengine.evt_base import setup_dmm, get_dmm, get_aux` and rename calls (`Setup_DMM()` → `setup_dmm(dmms={"dmm_c": dmm_c, ...})`). See note below on the eight-DMM API. |
 | 5 | Replace `RFEB_SN`/`RFHB_SN` | ✅ Automated by `RewriteBoardSerials` transformer + `OpenFlowConfig.rfeb_sn`/`rfhb_sn` fields (V1c-6) |
 | 6 | Convert sweep loops to `@pytest.mark.parametrize` | ❌ **Manual.** Judgment call — only works cleanly for simple outer loops without per-iteration setup. |
 | 7 | Handle nested verdict logic (MPR-skip vs fail) | ❌ **Manual.** Pure RF engineering judgment; migrator can't infer test intent. |
 | 8 | Strip bare `except:` blocks | ✅ Automated by `StripBareExcept` transformer |
+
+### Step 2 in detail — config field renames (V1d)
+
+`RewriteInputAttrs` strips the `in_` prefix from input-property reads, but
+three of the OpenTAP input names ended in `_config` while OpenFlowConfig
+calls the same fields `*_path`. `RewriteConfigNames` closes that gap:
+
+| OpenTAP-Python name (post-`in_`-strip) | OpenFlowConfig field |
+|---|---|
+| `config.conditions_limits_config` | `config.limits_path` |
+| `config.deembedding_config` | `config.deembedding_path` |
+| `config.calibration_file_config` | `config.calibration_path` |
+
+Mapping table lives in `openflow/migrate/transformers.py` near
+`_CONFIG_NAME_MAP`. Add a new entry there if you migrate a test that
+uses an OpenTAP input whose name doesn't match its OpenFlowConfig field.
 
 ### Step 4 in detail — porting EVT base helpers
 
