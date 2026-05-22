@@ -503,3 +503,46 @@ class ConvertPublishResult(cst.CSTTransformer):
             args=(),
         )
         return cst.Expr(value=new_call)
+
+
+# --- 10. Strip trivial lifecycle stubs (__init__, PreRun, PostRun) ------------
+
+_LIFECYCLE_METHODS = {"__init__", "PreRun", "PostRun"}
+
+
+class StripLifecycleStubs(cst.CSTTransformer):
+    """Remove __init__, PreRun, PostRun methods whose body is just `super().X()` or `pass`."""
+
+    def leave_ClassDef(self, original_node: cst.ClassDef,
+                       updated_node: cst.ClassDef) -> cst.ClassDef:
+        new_body: list[cst.BaseStatement] = []
+        for stmt in updated_node.body.body:
+            if isinstance(stmt, cst.FunctionDef) and stmt.name.value in _LIFECYCLE_METHODS:
+                if self._is_trivial(stmt):
+                    continue
+            new_body.append(stmt)
+        return updated_node.with_changes(
+            body=updated_node.body.with_changes(body=tuple(new_body)))
+
+    @staticmethod
+    def _is_trivial(func: cst.FunctionDef) -> bool:
+        statements = func.body.body
+        if not statements:
+            return True
+        for stmt in statements:
+            if isinstance(stmt, cst.SimpleStatementLine):
+                for sub in stmt.body:
+                    if isinstance(sub, cst.Pass):
+                        continue
+                    if isinstance(sub, cst.Expr) and isinstance(sub.value, cst.Call):
+                        call = sub.value
+                        # super().Something()
+                        if (isinstance(call.func, cst.Attribute)
+                                and isinstance(call.func.value, cst.Call)
+                                and isinstance(call.func.value.func, cst.Name)
+                                and call.func.value.func.value == "super"):
+                            continue
+                    return False
+            else:
+                return False
+        return True
