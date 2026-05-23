@@ -246,7 +246,8 @@ uv run pytest tests/bench_bringup/test_02_cmw100_nr_diagnostics.py \
 
 | SUMMARY output | Diagnosis | Next step |
 |---|---|---|
-| NR options absent | CMW100 lacks NR FR1 Meas license | Escalate. Cannot run TC-V1C-03+. |
+| NR options absent, **`KM500` present** in `*OPT?` | CMW100 has LTE Meas (KM500) but not NR FR1 Meas | **Use the LTE alternate path** — skip TC-V1C-03 and run **TC-V1C-03b** (see [Phase 1b](#phase-1b-lte-only-cmw100-alternate-path) below). This is exactly the case discovered during v1.0.0-rc1 bring-up. |
+| NR options absent, KM500 also absent | CMW100 is too old / lacks both NR and LTE Meas options | Escalate. Cannot run TC-V1C-03 or TC-V1C-03b. License upgrade or different CMW100 needed. |
 | NR options present, NRSub probe clean | NR chain healthy | Proceed to TC-V1C-03. |
 | NR options present, NRSub returns `-114` | NR app not instantiated | Edit `openflow/instruments/cmw100.py`: add `INSTrument:CREate "NR Sub Meas Q4"` (or equivalent — name visible in `App list`) to `CMW100.open()`. Re-run TC-V1C-02. |
 
@@ -316,6 +317,74 @@ uv run pytest -k test_dut --openflow-config=tests/configs/u300b0_evt.yaml -v
 | TC-V1C-04 DUT_U300 instantiation (if attempted) | ☐ | initials: ___ |
 | TC-V1C-05 DUT SPI round-trip (if attempted) | ☐ | initials: ___ |
 | **Phase 1 sign-off** | ☐ | initials: ___ + date: ___ |
+
+---
+
+# Phase 1b: LTE-only CMW100 alternate path
+
+**Skip this phase if Phase 1 TC-V1C-03 passed.** Phase 1b applies only
+when TC-V1C-02 showed "NR options absent" but `*OPT?` contained
+`KM500` (LTE Tx Meas).
+
+**Background:** v1.0.0-rc2 added an LTE TX measurement port
+(`openflow.instruments.cmw100_lte.CMW100LteMixin`) specifically to
+unblock benches like this one. The CMW100's LTE measurement chain
+is exercised via the same architecture as NR — separate mixin,
+same façade.
+
+## Prerequisites
+
+- Phase 1 reached TC-V1C-02 and confirmed:
+  - `*OPT?` reply contains `KM500` (LTE Tx Meas option)
+  - U300 (or whatever DUT) supports LTE transmission (NSA 5G chips usually do)
+- Same CMW100 LAN reachability as Phase 1
+
+## Configuration
+
+No additional YAML config needed — the LTE smoke test uses sensible
+defaults (band 7, 10 MHz FDD, QPSK). To target a different LTE band
+on your bench, edit `tests/bench_bringup/test_03b_cmw100_lte_tx_evm_smoke.py`
+and change the `LTE_DEFAULTS` dict at the top.
+
+## Procedure
+
+### Step 1b.1 — LTE TX-EVM smoke sweep
+
+```sh
+uv run pytest tests/bench_bringup/test_03b_cmw100_lte_tx_evm_smoke.py \
+    --openflow-config=tests/configs/u300b0_evt.yaml \
+    --openflow-report=reports/03b-lte-smoke.json \
+    --openflow-html-report=reports/03b-lte-smoke.html \
+    --log-cli-level=INFO -v
+```
+
+**Test case TC-V1C-03b — 5-point LTE TX-EVM sweep (CRITICAL on LTE-only benches):**
+- **Expected:** 5 sweep points complete; per-point `measured_tx_power_dBm` and `measured_EVM_pct` reported. NaN measurements are acceptable (means no signal at port) but the SCPI path must complete cleanly without `-113` / `-114` errors.
+- **Pass criterion:** Test PASSES, no SCPI errors raised.
+- **If it fails with `-113 "Undefined header"`:** The CMW100 firmware doesn't recognize the LTE SCPI commands. Verify `KM500` is in `*OPT?`. If yes, escalate — possible firmware version mismatch.
+- **If it fails with `-114 "Header suffix out of range"`:** The LTE app isn't instantiated. Less common for LTE than NR; check the CMW100 front panel app selector.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| All measurements return NaN | No DUT signal at the CMW100 input port | Connect the DUT's TX port to the CMW100; verify cabling + attenuators |
+| `-113 "Undefined header"` on `CONFigure:LTE:MEAS:...` | CMW100 lacks KM500 license | Verify `*OPT?` from TC-V1C-02; escalate if KM500 missing |
+| TX power readings off by >5 dB | External attenuation mismatch | Adjust the engineer's cabling, or extend `setup_LteTx` to set `EATTenuation` explicitly |
+| EVM reading suspiciously low (<0.1%) | DUT signal not actually modulated | Verify the DUT is actually transmitting a real modulated signal (not just CW) |
+
+## Sign-off (LTE-only branch)
+
+| | | |
+|---|---|---|
+| TC-V1C-03b LTE TX-EVM smoke PASS | ☐ | initials: ___ |
+| `KM500` confirmed in `*OPT?` from TC-V1C-02 | ☐ | initials: ___ |
+| **Phase 1b sign-off (in lieu of TC-V1C-03)** | ☐ | initials: ___ + date: ___ |
+
+> **Note:** Phase 1b *replaces* TC-V1C-03 for LTE-only benches. The
+> remainder of the runbook (Phases 2-8) proceeds normally — the
+> migrator, DMM, V2-V5 features all work identically regardless of
+> whether the CMW100 measurement chain is NR or LTE.
 
 ---
 
@@ -1210,9 +1279,12 @@ Master list — bench engineer ticks off as they go.
 |---|---|---|
 | TC-V1C-01 | CMW100 `*IDN?` round-trip | CRITICAL |
 | TC-V1C-02 | NR FR1 Meas diagnostic (gating) | CRITICAL |
-| TC-V1C-03 | 5-point TX-EVM smoke sweep | CRITICAL |
+| TC-V1C-03 | 5-point TX-EVM smoke sweep (NR-licensed CMW100) | CRITICAL* |
+| TC-V1C-03b | 5-point LTE TX-EVM smoke sweep (LTE-only CMW100, v1.0.0-rc2) | CRITICAL* |
 | TC-V1C-04 | DUT_U300 instantiation | OPTIONAL |
 | TC-V1C-05 | DUT SPI register round-trip | OPTIONAL |
+
+*One of TC-V1C-03 or TC-V1C-03b must pass, depending on CMW100 license.
 
 ## Phase 2 — V1d/V1e migrator validation
 

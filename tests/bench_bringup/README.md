@@ -12,6 +12,7 @@ failures point at one cause.
 | 1 | `test_01_cmw100_connectivity.py` | LAN → CMW100 → R&S SDK → `*IDN?` round-trip. No NR config touched. | Foundation — must pass before anything else. |
 | 2 | `test_02_cmw100_nr_diagnostics.py` | Dumps `*OPT?`, `INSTrument:LIST?`, `INSTrument:SELect?`, NRSub probe. Always passes (no asserts). | Run if test 03 fails with SCPI errors. |
 | 3 | `test_03_cmw100_tx_evm_smoke.py` | 5-point TX-EVM sweep via NR FR1 Meas SDK. No DUT, no calibration data. | Proves the full CMW100 measurement chain works. |
+| 3b | `test_03b_cmw100_lte_tx_evm_smoke.py` | **Alternate to test_03 for LTE-only CMW100s** (KM500 license, no NR). 5-point LTE TX-EVM sweep. v1.0.0-rc2. | Proves LTE measurement chain works on benches without NR FR1 Meas options. |
 | 4 | `test_04_dmm_connectivity.py` | LAN → Keysight 34461A DMM → pyvisa → `*IDN?` round-trip. (V1f driver, V3 bring-up.) | Independent of CMW100; required before any test that reads currents. |
 | 5 | `test_05_sg_connectivity.py` | LAN → R&S SMW200A SG → pyvisa → `*IDN?` round-trip. (V3.) | Independent; required before RX sensitivity tests. |
 | 6 | `test_06_sa_connectivity.py` | LAN → Keysight N9020B MXA (or R&S FSW) → pyvisa → `*IDN?` round-trip. (V3.) | Independent; required before RX measurement tests. |
