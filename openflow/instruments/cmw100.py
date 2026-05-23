@@ -1,9 +1,19 @@
-"""R&S CMW100 façade — combines the analyzer (mixin A) and generator (mixin G).
+"""R&S CMW100 façade — combines the analyzer (NR + LTE) and generator mixins.
 
-Public class consumed by the `cmw100` pytest fixture. Composes the two mixins
-ported from the existing UMT codebase. The `is_emulation` flag flows down so
-both mixins behave consistently — when True, all measurements return canned
-plausible values without touching the R&S SDK or hardware.
+Public class consumed by the `cmw100` pytest fixture. Composes three mixins:
+
+- ``CMW100AMixin`` (cmw100_a.py)  — NR FR1 Meas surface (V1a)
+- ``CMW100LteMixin`` (cmw100_lte.py) — LTE TX measurement surface (v1.0.0-rc2)
+- ``CMW100GMixin`` (cmw100_g.py)  — GPRF generator surface (V1a)
+
+The ``is_emulation`` flag flows down so all three mixins behave consistently —
+when True, every measurement / generator method returns canned plausible
+values without touching the R&S SDK or hardware.
+
+Engineers pick which measurement surface to use based on their CMW100's
+license set. A CMW100 with only KM500 (LTE Tx Meas) can drive the LTE
+surface; a CMW100 with NR FR1 Meas options can drive the NR surface;
+a fully-licensed one can drive both.
 """
 from __future__ import annotations
 
@@ -13,6 +23,7 @@ from typing import Any
 from openflow.instruments.base import Instrument
 from openflow.instruments.cmw100_a import CMW100AMixin
 from openflow.instruments.cmw100_g import CMW100GMixin
+from openflow.instruments.cmw100_lte import CMW100LteMixin
 
 
 class CMW100(Instrument):
@@ -26,6 +37,9 @@ class CMW100(Instrument):
         self.cmwa = CMW100AMixin()
         self.cmwa.is_emulation = is_emulation
 
+        self.cmwl = CMW100LteMixin()
+        self.cmwl.is_emulation = is_emulation
+
         self.cmwg = CMW100GMixin()
         self.cmwg.is_emulation = is_emulation
 
@@ -36,16 +50,18 @@ class CMW100(Instrument):
     # --- Instrument ABC ----------------------------------------------------
     def open(self) -> None:
         self.cmwa.Open(self.resource if self.resource else None)
+        self.cmwl.Open(self.resource if self.resource else None)
         self.cmwg.Open(self.resource if self.resource else None)
 
     def close(self) -> None:
         self.cmwa.Close()
+        self.cmwl.Close()
         self.cmwg.Close()
 
     def write(self, scpi: str) -> None:
         raise NotImplementedError(
             "CMW100 uses the R&S Python SDK; raw SCPI is not supported. "
-            "Use the high-level methods (setup_NrTx, meas_NrTxEVM, etc.).")
+            "Use the high-level methods (setup_NrTx / setup_LteTx / etc.).")
 
     def query(self, scpi: str) -> str:
         raise NotImplementedError(
@@ -64,6 +80,19 @@ class CMW100(Instrument):
 
     def meas_NrTxPower(self, *, use_cached: bool = False) -> float:
         return self.cmwa.meas_NrTxPower(use_cached=use_cached)
+
+    # --- LTE Tx measurement surface (delegates to mixin LTE, v1.0.0-rc2) ---
+    def setup_LteTx(self, **kwargs: Any) -> None:
+        return self.cmwl.setup_LteTx(**kwargs)
+
+    def meas_LteTxAll(self) -> None:
+        return self.cmwl.meas_LteTxAll()
+
+    def meas_LteTxEVM(self, *, use_cached: bool = False) -> float:
+        return self.cmwl.meas_LteTxEVM(use_cached=use_cached)
+
+    def meas_LteTxPower(self, *, use_cached: bool = False) -> float:
+        return self.cmwl.meas_LteTxPower(use_cached=use_cached)
 
     # --- Generator surface (delegates to mixin G) --------------------------
     def set_arb_signal_rf(self, **kwargs: Any) -> None:

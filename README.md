@@ -105,6 +105,7 @@ isolate each instrument so failures point at one cause:
 | 1 | `test_01_cmw100_connectivity.py` | LAN + SDK + VISA path is healthy |
 | 2 | `test_02_cmw100_nr_diagnostics.py` | NR FR1 Meas license + app state (diagnostic-only) |
 | 3 | `test_03_cmw100_tx_evm_smoke.py` | Full CMW100 NR measurement chain (5-point sweep) |
+| 3b | `test_03b_cmw100_lte_tx_evm_smoke.py` | Alternate to test_03 for LTE-only CMW100s (v1.0.0-rc2) |
 | 4 | `test_04_dmm_connectivity.py` | Keysight 34461A DMM (V1f) |
 | 5 | `test_05_sg_connectivity.py` | R&S SMW200A signal generator (V3) |
 | 6 | `test_06_sa_connectivity.py` | Keysight N9020B / R&S FSW spectrum analyzer (V3) |

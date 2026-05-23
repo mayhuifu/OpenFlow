@@ -93,6 +93,7 @@ ignore = ["E501"]
 # verbatim from the production source (changing them risks subtle behavior diffs).
 "openflow/instruments/cmw100_a.py" = ["F403", "F405", "E711", "B007"]
 "openflow/instruments/cmw100_g.py" = ["F403", "F405", "E711", "F841"]
+"openflow/instruments/cmw100_lte.py" = ["F403", "F405"]
 # Ported rfengine code is legacy Python; signatures preserved as-is.
 "openflow/rfengine/calibration_file.py" = ["RUF013", "E711", "B007", "F841", "B904", "B905"]
 "openflow/rfengine/deembedding.py" = ["RUF013", "E711", "B007"]
@@ -129,6 +130,7 @@ ignore_missing_imports = true
 module = [
     "openflow.instruments.cmw100_a",
     "openflow.instruments.cmw100_g",
+    "openflow.instruments.cmw100_lte",
     "openflow.rfengine.deembedding",
     "openflow.rfengine.testconditions_limits",
     "openflow.rfengine.calibration_file",
