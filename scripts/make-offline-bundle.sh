@@ -81,6 +81,49 @@ OUTPUT_DIR="$REPO_ROOT/dist"
 mkdir -p "$OUTPUT_DIR"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
+# Bundle housekeeping. After building a new bundle, keep only the
+# N newest of the same variant (online/offline) and delete older
+# ones to avoid dist/ growing unbounded. Override via env var:
+#   KEEP_BUNDLES=5 scripts/make-offline-bundle.sh
+# Set to 0 to disable pruning entirely (e.g. for archival builds).
+: "${KEEP_BUNDLES:=3}"
+
+# Delete all but the KEEP_BUNDLES newest bundles of the given variant
+# (online | offline). Old bundles are still recoverable from GitHub
+# releases. Implementation note: we use `ls -t` on a glob and accept
+# whichever ls flavor is on $PATH. On both BSD ls (macOS) and GNU ls
+# (Linux), `-t` sorts by mtime newest-first, which is all we need.
+prune_old_bundles() {
+  local variant="$1"
+  if [[ "$KEEP_BUNDLES" -le 0 ]]; then
+    return 0
+  fi
+
+  # Collect matching files into an array (sorted newest-first by ls -t).
+  # Use a glob, not find, so empty matches expand to nothing rather than
+  # to a literal "*" pattern. nullglob makes that safe; we restore it.
+  local restore_nullglob
+  if shopt -q nullglob; then restore_nullglob=true; else restore_nullglob=false; fi
+  shopt -s nullglob
+  local -a all_bundles
+  # shellcheck disable=SC2207
+  all_bundles=($(ls -t "$OUTPUT_DIR"/OpenFlow-*-"${variant}".zip 2>/dev/null))
+  if [[ "$restore_nullglob" == "false" ]]; then shopt -u nullglob; fi
+
+  local total=${#all_bundles[@]}
+  if [[ "$total" -le "$KEEP_BUNDLES" ]]; then
+    return 0
+  fi
+
+  echo
+  echo "Pruning old ${variant} bundles (keeping ${KEEP_BUNDLES} newest of ${total}):"
+  local i
+  for (( i = KEEP_BUNDLES; i < total; i++ )); do
+    echo "  rm ${all_bundles[$i]}"
+    rm -f "${all_bundles[$i]}"
+  done
+}
+
 # ----------------------------------------------------------------- excludes --
 
 # Patterns to exclude. NB: zip's -x patterns are matched against the path AS
@@ -119,6 +162,7 @@ if [[ "$MODE" == "online" ]]; then
 
   echo "✅ Bundle ready: $OUTPUT"
   echo "   Size: $(du -h "$OUTPUT" | cut -f1)"
+  prune_old_bundles "online"
   echo
   echo "ENGINEER INSTRUCTIONS"
   echo "  1. Unzip the bundle:        unzip $(basename "$OUTPUT")"
@@ -185,6 +229,7 @@ if [[ "$MODE" == "offline" ]]; then
   echo
   echo "✅ Bundle ready: $OUTPUT"
   echo "   Size: $(du -h "$OUTPUT" | cut -f1)"
+  prune_old_bundles "offline"
   echo
   echo "ENGINEER INSTRUCTIONS"
   echo "  1. Unzip the bundle:        unzip $(basename "$OUTPUT")"
