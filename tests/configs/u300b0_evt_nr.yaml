@@ -1,0 +1,70 @@
+# OpenFlow bench config — U300B0 RFEB EVT bench, 5G NR FR1 TX-EVM smoke.
+#
+# Pre-configured for `tests/bench_bringup/test_03_cmw100_tx_evm_smoke.py` on
+# the U300B0 bench at SZLABPC-WIN04. Tuned for n78 (3.5 GHz, 100 MHz BW).
+#
+# Usage on the bench:
+#   uv run pytest tests/bench_bringup/test_03_cmw100_tx_evm_smoke.py \
+#       --openflow-config=tests/configs/u300b0_evt_nr.yaml \
+#       --openflow-report=reports/03-nr-smoke.json \
+#       --log-cli-level=INFO -v
+#
+# Edit the `resource:` line to point at YOUR bench's CMW100 if different.
+
+instruments:
+  cmw100:
+    # Bench SZLABPC-WIN04 VXI-11 fallback. HiSLIP form is
+    # "TCPIP::10.61.8.135::hislip0::INSTR" — try VXI-11 first.
+    resource: "TCPIP::10.61.8.135::inst0::INSTR"
+  # V3: SG / SA / WFG / DMM drivers — MOCK:: prefix routes to is_emulation=True.
+  # Switch to real resources once you bring up tests 04..07.
+  sg:
+    resource: "MOCK::SG::INSTR"
+  sa:
+    resource: "MOCK::SA::INSTR"
+  wfg:
+    resource: "MOCK::WFG::INSTR"
+  dmm_c:
+    resource: "MOCK::DMM_C::INSTR"
+  dmm_v:
+    resource: "MOCK::DMM_V::INSTR"
+
+# --- 5G NR FR1 (n78) parameters ----------------------------------------
+band: n78
+modulation: "16QAM"
+rfbw_Hz:           100000000     # 100 MHz channel
+dl_freq_pll_Hz:   3600000000     # 3.6 GHz downlink
+ul_freq_pll_Hz:   3500000000     # 3.5 GHz uplink (used by test_03)
+rb_centre_freq_Hz: 3500000000
+
+# NR-specific antenna routing. "TX0_ANT0" → R11 on the CMW100 front panel
+# (see _resolve_rf_connector in cmw100_a.py for the full mapping).
+ul_config: TX0_ANT0
+dl_config: RX0_ANT0
+dl_config_active: RX0_ANT0
+
+scs_Hz: 30000                   # 30 kHz subcarrier spacing (FR1 numerology 1)
+freq_offset_dl_Hz: 0
+
+# Power envelope. tx_power_dBm is the DUT TX target; the framework adds
+# +20 dB headroom for the CMW100 envelope power setting (see setup_NrTx).
+tx_power_dBm: 0.0
+tx_power_backoff_dB: 5.0
+rx_power_backoff_dB: 10.0
+tx_dac_backoff_dBFS: 6.0
+rx_gain_dB: 30
+board_config: RFEB1
+
+# Lookup tables (V1a: paths recorded, content not validated yet).
+limits_path: ../../configs/limits/U300B0.yaml
+deembedding_path: ../../configs/deembedding/U300B0.yaml
+calibration_path: ../../configs/calibration/U300B0.yaml
+
+# DUT. For bench bring-up (just exercises the CMW100), `stub`/`emulation:true`
+# is enough — no real DUT is touched by test_03. Change to `u300` / `false`
+# once you bring up the FT2232H bridge + DUT register-write path.
+dut:
+  type: stub
+  emulation: true
+  ftdi_address: ""
+  reg_map_file: ""
