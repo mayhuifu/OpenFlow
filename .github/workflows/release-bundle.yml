@@ -1,0 +1,77 @@
+name: release-bundle
+
+# Auto-build the online source bundle on every version tag and attach it
+# to the corresponding GitHub release. Eliminates the stale-bundle bench
+# cycle (rc8/rc9 era: engineer kept running an rc7 bundle because no one
+# remembered to rebuild it manually).
+#
+# The release itself is still created manually (or by another workflow) —
+# this only attaches the asset. If the release doesn't exist yet when the
+# workflow runs, it creates a minimal placeholder so the upload has a
+# target; the human-authored release notes can be added afterwards via
+# `gh release edit`.
+
+on:
+  push:
+    tags:
+      - 'v*'                      # matches v0.x, v1.x, v1.0.0-rcN, ...
+
+permissions:
+  contents: write                 # required to upload release assets
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # we want the tag's history for `git describe`
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      # The bundle script is bash; ubuntu-latest has `zip` already.
+      - name: Verify build prerequisites
+        run: |
+          set -euo pipefail
+          command -v zip
+          command -v uv
+          test -x scripts/make-offline-bundle.sh
+
+      - name: Build online bundle
+        run: scripts/make-offline-bundle.sh
+
+      - name: Locate the produced bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+          BUNDLE="$(ls -1 dist/OpenFlow-*-online.zip | tail -n1)"
+          test -f "$BUNDLE"
+          echo "path=$BUNDLE" >> "$GITHUB_OUTPUT"
+          echo "Bundle: $BUNDLE"
+          ls -lh "$BUNDLE"
+
+      # Idempotent: succeeds whether the release pre-exists or not.
+      - name: Ensure GitHub release exists for this tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists — skipping create."
+          else
+            echo "Release ${GITHUB_REF_NAME} not found — creating placeholder."
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Auto-created by release-bundle workflow. Edit with \`gh release edit ${GITHUB_REF_NAME} --notes ...\` to add real release notes."
+          fi
+
+      - name: Attach bundle to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${GITHUB_REF_NAME}" "${{ steps.bundle.outputs.path }}" --clobber
+          echo "Uploaded $(basename "${{ steps.bundle.outputs.path }}") to release ${GITHUB_REF_NAME}"

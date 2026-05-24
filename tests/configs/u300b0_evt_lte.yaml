@@ -1,0 +1,76 @@
+# OpenFlow bench config — U300B0 RFEB EVT bench, LTE FDD TX-EVM smoke.
+#
+# Pre-configured for `tests/bench_bringup/test_03b_cmw100_lte_tx_evm_smoke.py`
+# on the U300B0 bench at SZLABPC-WIN04. Tuned for Band 7 (2.65 GHz, 10 MHz BW).
+#
+# Usage on the bench:
+#   uv run pytest tests/bench_bringup/test_03b_cmw100_lte_tx_evm_smoke.py \
+#       --openflow-config=tests/configs/u300b0_evt_lte.yaml \
+#       --openflow-report=reports/03b-lte-smoke.json \
+#       --log-cli-level=INFO -v
+#
+# NOTE: As of v1.0.0-rc8, test_03b uses its own hardcoded LTE_DEFAULTS (B7,
+# 2.65 GHz, 10 MHz, QPSK) and ignores most of this file's RF params. The
+# values below are pinned to those defaults so future LTE tests that DO
+# read from config (full EVT migration) start with sane numbers.
+
+instruments:
+  cmw100:
+    # Bench SZLABPC-WIN04 VXI-11 fallback. HiSLIP form is
+    # "TCPIP::10.61.8.135::hislip0::INSTR" — try VXI-11 first.
+    resource: "TCPIP::10.61.8.135::inst0::INSTR"
+  # V3: SG / SA / WFG / DMM drivers — MOCK:: prefix routes to is_emulation=True.
+  # Switch to real resources once you bring up tests 04..07.
+  sg:
+    resource: "MOCK::SG::INSTR"
+  sa:
+    resource: "MOCK::SA::INSTR"
+  wfg:
+    resource: "MOCK::WFG::INSTR"
+  dmm_c:
+    resource: "MOCK::DMM_C::INSTR"
+  dmm_v:
+    resource: "MOCK::DMM_V::INSTR"
+
+# --- LTE FDD Band 7 parameters -----------------------------------------
+band: B7
+modulation: "QPSK"
+rfbw_Hz:           10000000      # 10 MHz channel (LTE_DEFAULTS["rfbw_Hz"])
+dl_freq_pll_Hz:    2750000000    # 2.75 GHz downlink (B7 DL band centre)
+ul_freq_pll_Hz:    2650000000    # 2.65 GHz uplink (LTE_DEFAULTS["freq_pll_Hz"])
+rb_centre_freq_Hz: 2650000000
+
+# Antenna routing on LTE setup. setup_LteTx accepts in_rf_connector
+# directly (1..8 → R11..R18). LTE config doesn't use ul_config strings
+# the way NR does, but we keep them for completeness.
+ul_config: TX0_ANT0
+dl_config: RX0_ANT0
+dl_config_active: RX0_ANT0
+
+# scs_Hz is NR-only. LTE always uses 15 kHz subcarrier spacing — value
+# below is preserved for schema compatibility but unused on the LTE path.
+scs_Hz: 15000
+freq_offset_dl_Hz: 0
+
+# Power envelope. tx_power_dBm is the DUT TX target; the framework adds
+# +20 dB headroom for the CMW100 envelope power setting (see setup_LteTx).
+tx_power_dBm: 0.0
+tx_power_backoff_dB: 5.0
+rx_power_backoff_dB: 10.0
+tx_dac_backoff_dBFS: 6.0
+rx_gain_dB: 30
+board_config: RFEB1
+
+# Lookup tables (V1a: paths recorded, content not validated yet).
+limits_path: ../../configs/limits/U300B0.yaml
+deembedding_path: ../../configs/deembedding/U300B0.yaml
+calibration_path: ../../configs/calibration/U300B0.yaml
+
+# DUT. For bench bring-up (just exercises the CMW100), `stub`/`emulation:true`
+# is enough — no real DUT is touched by test_03b. Change to `u300` / `false`
+# once you bring up the FT2232H bridge + DUT register-write path.
+dut:
+  type: stub
+  emulation: true
+  ftdi_address: ""
+  reg_map_file: ""

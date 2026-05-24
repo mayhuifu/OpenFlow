@@ -26,28 +26,53 @@ since they're independent of each other.
 
 ## Running
 
+### Pick the right config for your test
+
+As of v1.0.0-rc10 there are three configs in `tests/configs/`:
+
+| Config | Tuned for | Use with |
+|---|---|---|
+| `u300b0_evt.yaml` | Legacy default (NR n78 numbers, `MOCK::` resources) | Demo / migration tests in CI |
+| `u300b0_evt_nr.yaml` | **5G NR n78** — 3.5 GHz, 100 MHz BW, 16QAM | `test_03_cmw100_tx_evm_smoke.py` (NR sweep) |
+| `u300b0_evt_lte.yaml` | **LTE FDD B7** — 2.65 GHz, 10 MHz BW, QPSK | `test_03b_cmw100_lte_tx_evm_smoke.py` (LTE sweep) |
+
+Both `_nr.yaml` and `_lte.yaml` ship with the SZLABPC-WIN04 VXI-11 resource
+(`TCPIP::10.61.8.135::inst0::INSTR`) — edit those two lines for your bench.
+
+### Run them in order
+
 From the repo root:
 
 ```sh
-# Run them in order:
+# Connectivity + diagnostics — either config works (they only touch *IDN?)
 uv run pytest tests/bench_bringup/test_01_cmw100_connectivity.py \
-    --openflow-config=tests/configs/u300b0_evt.yaml \
-    --openflow-report=01-conn.json --log-cli-level=INFO -v
+    --openflow-config=tests/configs/u300b0_evt_nr.yaml \
+    --openflow-report=reports/01-conn.json --log-cli-level=INFO -v
 
 uv run pytest tests/bench_bringup/test_02_cmw100_nr_diagnostics.py \
-    --openflow-config=tests/configs/u300b0_evt.yaml \
-    --openflow-report=02-diag.json --log-cli-level=INFO -v
+    --openflow-config=tests/configs/u300b0_evt_nr.yaml \
+    --openflow-report=reports/02-diag.json --log-cli-level=INFO -v
 
+# NR TX-EVM smoke — uses the NR config (n78, 3.5 GHz, 100 MHz)
 uv run pytest tests/bench_bringup/test_03_cmw100_tx_evm_smoke.py \
-    --openflow-config=tests/configs/u300b0_evt.yaml \
-    --openflow-report=03-smoke.json --log-cli-level=INFO -v
+    --openflow-config=tests/configs/u300b0_evt_nr.yaml \
+    --openflow-report=reports/03-nr-smoke.json --log-cli-level=INFO -v
+
+# LTE TX-EVM smoke — uses the LTE config (B7, 2.65 GHz, 10 MHz)
+uv run pytest tests/bench_bringup/test_03b_cmw100_lte_tx_evm_smoke.py \
+    --openflow-config=tests/configs/u300b0_evt_lte.yaml \
+    --openflow-report=reports/03b-lte-smoke.json --log-cli-level=INFO -v
 ```
+
+PowerShell users: use backtick (\` \`) for line continuation, **not** backslash.
+Backslash will cause `pytest` to treat the next line as a separate command and
+the `--openflow-config` flag won't reach the test runner.
 
 Or all at once (each writes its own report file):
 
 ```sh
 uv run pytest tests/bench_bringup/ \
-    --openflow-config=tests/configs/u300b0_evt.yaml \
+    --openflow-config=tests/configs/u300b0_evt_nr.yaml \
     --log-cli-level=INFO -v
 ```
 
