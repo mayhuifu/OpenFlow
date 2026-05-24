@@ -1,7 +1,7 @@
 """V4: persistent results storage.
 
 Default backend is SQLite — zero-config, file lives next to the test
-report. Optional PostgreSQL backend (``uv sync --extras postgres``) for
+report. Optional PostgreSQL backend (``uv sync --extra postgres``) for
 shared multi-bench labs.
 
 Public surface:
