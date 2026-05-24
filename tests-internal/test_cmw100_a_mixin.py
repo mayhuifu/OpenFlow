@@ -151,3 +151,98 @@ def test_setup_nrtx_with_tx0_ant0_does_not_unboundlocal():
         in_ul_config="TX0_ANT0",  # the value that crashed on bench
         in_scs_Hz=30_000,
     )
+
+
+# --- v1.0.0-rc11 bench-feedback regression --------------------------------
+# bench SZLABPC-WIN04 (firmware 3.8.17, rc10) hit:
+#   AttributeError: 'CMW100AMixin' object has no attribute 'get_NrErrors'
+#   openflow/instruments/cmw100_a.py:570
+# inside meas_NrTxPower. The helper was referenced from meas_NrTxEVM
+# (line 517) and meas_NrTxPower (line 570) but never ported from
+# OpenTAP. rc11 ports it as a non-fatal SCPI error-queue drain.
+
+def test_get_nr_errors_exists_as_attribute():
+    """rc11: the bare AttributeError must never recur. Pin that
+    get_NrErrors is callable on the class."""
+    m = CMW100AMixin()
+    assert callable(getattr(m, "get_NrErrors", None)), (
+        "CMW100AMixin must expose get_NrErrors() — required by "
+        "meas_NrTxEVM and meas_NrTxPower."
+    )
+
+
+def test_get_nr_errors_emulation_returns_empty_list():
+    """In emulation mode, no real SCPI is sent — get_NrErrors returns []
+    without touching self.Base."""
+    m = CMW100AMixin()
+    m.is_emulation = True
+    result = m.get_NrErrors()
+    assert result == []
+    assert m.err_list == []
+
+
+def test_get_nr_errors_no_base_session_returns_empty_list():
+    """Defensive: if Base session isn't open (rare — would happen if
+    Open() was never called), get_NrErrors returns [] not crashes."""
+    m = CMW100AMixin()
+    m.is_emulation = False
+    m.Base = None
+    result = m.get_NrErrors()
+    assert result == []
+
+
+def test_get_nr_errors_drains_until_no_error():
+    """Simulate a real CMW100 with a few queued errors followed by a
+    'No error' reply. get_NrErrors should drain until the queue is
+    empty, return the list, and store it on self.err_list."""
+    import types
+    m = CMW100AMixin()
+    m.is_emulation = False
+    # Build a fake Base.utilities with a scripted SYSTem:ERRor? sequence.
+    replies = iter([
+        '-114,"Header suffix out of range;SOME CMD"',
+        '-109,"Missing parameter;OTHER CMD"',
+        '0,"No error"',
+    ])
+    fake = types.SimpleNamespace(
+        utilities=types.SimpleNamespace(
+            query_str=lambda cmd: next(replies),
+        )
+    )
+    m.Base = fake  # type: ignore[assignment]
+
+    result = m.get_NrErrors()
+    assert len(result) == 2
+    assert "-114" in result[0]
+    assert "-109" in result[1]
+    assert m.err_list == result  # stored on the instance
+
+
+def test_get_nr_errors_handles_plus_zero_form():
+    """Some R&S firmware vintages reply '+0,"No error"' instead of
+    '0,"No error"'. Both must terminate the drain loop."""
+    import types
+    m = CMW100AMixin()
+    m.is_emulation = False
+    fake = types.SimpleNamespace(
+        utilities=types.SimpleNamespace(query_str=lambda cmd: '+0,"No error"'),
+    )
+    m.Base = fake  # type: ignore[assignment]
+    assert m.get_NrErrors() == []
+
+
+def test_get_nr_errors_swallows_query_exception():
+    """If SYSTem:ERRor? itself raises (e.g. VISA timeout), the helper
+    must not propagate — its callers are mid-measurement and would
+    otherwise lose the measurement they just took."""
+    import types
+    m = CMW100AMixin()
+    m.is_emulation = False
+    def raising_query(_cmd):
+        raise RuntimeError("VISA timeout")
+    fake = types.SimpleNamespace(
+        utilities=types.SimpleNamespace(query_str=raising_query),
+    )
+    m.Base = fake  # type: ignore[assignment]
+    # Must not raise.
+    assert m.get_NrErrors() == []
