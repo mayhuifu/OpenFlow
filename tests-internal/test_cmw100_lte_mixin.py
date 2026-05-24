@@ -125,6 +125,37 @@ def test_tx_power_envelope_setting_uses_headroom():
     lte.setup_LteTx(in_band="B7", in_rfbw_Hz=10e6, in_tx_power_dBm=15.0)
 
 
+# --- SCPI suffix regression (v1.0.0-rc4 bench-feedback fix) ---------------
+
+def test_setup_lte_tx_uses_measurement1_suffix_not_bare_meas():
+    """v1.0.0-rc4: CMW100 firmware 3.8.17 rejects `LTE:MEAS:...` with
+    `-114 \"Header suffix out of range\"`. The canonical form requires
+    a numeric suffix on MEASurement (i.e. `LTE:MEASurement1:...`).
+
+    This test pins the corrected SCPI form in the _scpi_log.
+    Bench engineer at bench SZLABPC-WIN04 found this in v1.0.0-rc2.
+    """
+    lte = CMW100LteMixin()
+    lte.is_emulation = True
+    lte.Open(VisaAddress=None)
+    lte.setup_LteTx(in_band="B7", in_freq_pll_Hz=2.65e9, in_rfbw_Hz=10e6,
+                    in_tx_power_dBm=0.0, in_duplex_mode="FDD")
+
+    # Every command must use the `MEASurement1` form, not the bare `MEAS`.
+    log_text = "\n".join(lte._scpi_log)
+    assert "LTE:MEASurement1:" in log_text
+    # Regression-pin the specific commands that fired -114 on bench:
+    assert "CONFigure:LTE:MEASurement1:MEValuation:DMODe FDD" in lte._scpi_log
+    # No bare `:MEAS:` should appear anywhere (would re-trigger -114).
+    for cmd in lte._scpi_log:
+        # `MEAS` is a valid token only when followed by a digit (e.g. MEAS1) —
+        # never as a bare keyword in our SCPI.
+        assert ":MEAS:" not in cmd, (
+            f"Bare ':MEAS:' (no instance suffix) found in SCPI command — "
+            f"will trigger -114 'Header suffix out of range' on CMW100: {cmd!r}"
+        )
+
+
 # --- CMW100 façade integration ------------------------------------------
 
 def test_cmw100_facade_exposes_lte_methods():

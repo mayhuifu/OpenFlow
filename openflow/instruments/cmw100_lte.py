@@ -97,6 +97,11 @@ class CMW100LteMixin:
         # Cache of the last measured tuple — populated by meas_LteTxAll,
         # consumed by meas_LteTxEVM / meas_LteTxPower with use_cached=True.
         self._last_meas: dict[str, float] = {}
+        # Recorded SCPI traffic — useful for bench-side post-mortem when
+        # debugging a CMW100 SCPI error. Mirror of the V3 SCPIInstrument
+        # base's _scpi_log; LTE doesn't inherit from that base because
+        # the lifecycle is owned by the CMW100 façade, not pyvisa.
+        self._scpi_log: list[str] = []
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -165,43 +170,50 @@ class CMW100LteMixin:
                 f"setup_LteTx: unsupported LTE bandwidth {in_rfbw_Hz/1e6} MHz. "
                 f"Must be one of {sorted(b / 1e6 for b in _LTE_BW_CODE)}.")
 
+        if not self.is_emulation and self.LteMeas is None:
+            self.log.warning("setup_LteTx: LteMeas session not open")
+            return
+
         if self.is_emulation:
             self.log.info("CMW100LteMixin.setup_LteTx: emulation — "
                           "band=%s freq=%g Hz bw=%g Hz power=%g dBm",
                           in_band, in_freq_pll_Hz, in_rfbw_Hz, in_tx_power_dBm)
-            return
-
-        if self.LteMeas is None:
-            self.log.warning("setup_LteTx: LteMeas session not open")
-            return
 
         # Build the SCPI commands. We use raw write via the Base utilities
         # because the LTE SDK's enum surface varies subtly across SDK
         # versions and raw SCPI is stable + debuggable.
+        #
+        # The `MEASurement1` suffix is required — bench testing on CMW100
+        # firmware 3.8.17 (v1.0.0-rc2) found that bare `LTE:MEAS:...` is
+        # rejected with -114 "Header suffix out of range". The instance
+        # number (1) selects the first LTE measurement instance.
         scpi_writes = [
             # Duplex mode.
-            f"CONFigure:LTE:MEAS:MEValuation:DMODe {in_duplex_mode}",
+            f"CONFigure:LTE:MEASurement1:MEValuation:DMODe {in_duplex_mode}",
             # Connector.
-            f"ROUTe:LTE:MEAS:SCENario:SALone R1{in_rf_connector}",
+            f"ROUTe:LTE:MEASurement1:SCENario:SALone R1{in_rf_connector}",
             # RF settings — external attenuation, envelope power, user margin.
-            "CONFigure:LTE:MEAS:RFSettings:EATTenuation 0",
-            f"CONFigure:LTE:MEAS:RFSettings:ENPower {in_tx_power_dBm + 20.0:.2f}",
-            "CONFigure:LTE:MEAS:RFSettings:UMARgin 0",
+            "CONFigure:LTE:MEASurement1:RFSettings:EATTenuation 0",
+            f"CONFigure:LTE:MEASurement1:RFSettings:ENPower {in_tx_power_dBm + 20.0:.2f}",
+            "CONFigure:LTE:MEASurement1:RFSettings:UMARgin 0",
             # Band + frequency.
-            f"CONFigure:LTE:MEAS:BAND OB{band_number}",
-            f"CONFigure:LTE:MEAS:RFSettings:FREQuency {in_freq_pll_Hz:.0f}",
+            f"CONFigure:LTE:MEASurement1:BAND OB{band_number}",
+            f"CONFigure:LTE:MEASurement1:RFSettings:FREQuency {in_freq_pll_Hz:.0f}",
             # Channel bandwidth.
-            f"CONFigure:LTE:MEAS:CBANDwidth {bw_code}",
+            f"CONFigure:LTE:MEASurement1:CBANDwidth {bw_code}",
             # MEValuation defaults — single-shot, all results.
-            "CONFigure:LTE:MEAS:MEValuation:REPetition SINGleshot",
-            "CONFigure:LTE:MEAS:MEValuation:MOEXception OFF",
+            "CONFigure:LTE:MEASurement1:MEValuation:REPetition SINGleshot",
+            "CONFigure:LTE:MEASurement1:MEValuation:MOEXception OFF",
         ]
         for cmd in scpi_writes:
             self._write_scpi(cmd)
 
-        # Clear stale errors after configuration.
-        self._write_scpi("*CLS")
-        time.sleep(0.1)
+        # Clear stale errors after configuration. Only sent on real
+        # hardware — *CLS on a None Base is a no-op anyway, but skip
+        # the trailing sleep to keep emulation-mode tests fast.
+        if not self.is_emulation:
+            self._write_scpi("*CLS")
+            time.sleep(0.1)
 
     # --- Measurement -------------------------------------------------------
 
@@ -221,11 +233,11 @@ class CMW100LteMixin:
 
         time.sleep(self.delay_pre_measurement)
         # Initiate single-shot measurement and wait.
-        self._write_scpi("INITiate:LTE:MEAS:MEValuation")
+        self._write_scpi("INITiate:LTE:MEASurement1:MEValuation")
         # Poll the measurement state until DONE (or timeout).
         for _ in range(60):  # ~30 s upper bound at 0.5 s polls
             state = self._query_scpi(
-                "FETCh:LTE:MEAS:MEValuation:STATe?")
+                "FETCh:LTE:MEASurement1:MEValuation:STATe?")
             if state and "RDY" in state.upper():
                 break
             if state and "OFF" in state.upper():
@@ -239,7 +251,7 @@ class CMW100LteMixin:
         # parse defensively by index.
         try:
             mod_avg = self._query_scpi(
-                "FETCh:LTE:MEAS:MEValuation:MODulation:AVERage?")
+                "FETCh:LTE:MEASurement1:MEValuation:MODulation:AVERage?")
             parts = [p.strip() for p in (mod_avg or "").split(",")]
             # Typical order: <Reliability>, <OutOfTol>, <DMRS_Power>,
             # <EVMRms>, <EVMPeak>, <MERms>, <MEPeak>, <FreqErr>, <SampErr>,
@@ -276,18 +288,26 @@ class CMW100LteMixin:
     # --- internals --------------------------------------------------------
 
     def _write_scpi(self, cmd: str) -> None:
-        """Send a raw SCPI command via the Base utilities."""
+        """Send a raw SCPI command via the Base utilities. Records in
+        ``_scpi_log`` regardless of emulation / session state so the
+        log is a reliable post-mortem source even when the Base session
+        isn't open yet (validation-only path)."""
+        self._scpi_log.append(cmd)
         if self.Base is None:
-            self.log.warning("_write_scpi: Base session not open — dropping %r", cmd)
+            if not self.is_emulation:
+                self.log.warning("_write_scpi: Base session not open — "
+                                 "dropping %r", cmd)
             return
         self.Base.utilities.write_str(cmd)
 
     def _query_scpi(self, cmd: str) -> str | None:
         """Send a raw SCPI query via the Base utilities. Returns None
         if the Base session is closed."""
+        self._scpi_log.append(cmd)
         if self.Base is None:
             return None
-        return self.Base.utilities.query_str(cmd)
+        result: str = self.Base.utilities.query_str(cmd)
+        return result
 
     @staticmethod
     def _safe_float(parts: list[str], idx: int, default: float) -> float:
