@@ -126,6 +126,18 @@ def test_handles_missing_session_keys(tmp_path: Path):
     assert "</html>" in html
 
 
+def test_renderer_auto_creates_parent_dir(canonical_report_path: Path,
+                                          tmp_path: Path):
+    """v1.0.0-rc3 bench-feedback fix: same as the JSON-side auto-mkdir.
+    Engineers running ``--openflow-html-report=reports/X.html`` shouldn't
+    need to mkdir reports/ first."""
+    out = tmp_path / "missing-dir" / "subdir" / "report.html"
+    assert not out.parent.exists()  # pre-condition
+    HTMLReportRenderer(canonical_report_path).render(out)
+    assert out.exists()
+    assert out.parent.exists()
+
+
 def test_html_size_reasonable(rendered_html: str):
     """Single-file HTML for a small report should stay under 100 KB
     (V2 spec target)."""

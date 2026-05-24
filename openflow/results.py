@@ -33,9 +33,17 @@ class ResultsPublisher:
 def write_session_report(path: Path,
                          publishers: list[ResultsPublisher],
                          session_summary: dict[str, Any]) -> None:
-    """Aggregate all per-test publishers into a single session report JSON file."""
+    """Aggregate all per-test publishers into a single session report JSON file.
+
+    Auto-creates the parent directory if it doesn't exist — this matches
+    engineer expectations and avoids a confusing FileNotFoundError at
+    sessionfinish time when the runbook says ``--openflow-report=reports/01.json``
+    but ``reports/`` wasn't pre-created.
+    """
     payload = {
         "session": session_summary,
         "tests": [p.to_dict() for p in publishers],
     }
-    Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
