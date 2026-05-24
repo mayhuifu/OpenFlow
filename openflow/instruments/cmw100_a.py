@@ -47,6 +47,12 @@ class CMW100AMixin:
     # in_synchronization_mode is set by the CMW100 façade (mirrors the OpenTAP
     # default "Enhanced"). Declared here so static type-checkers see it.
     in_synchronization_mode: str = "Enhanced"
+    # Per-antenna RF connector indices used when `in_ul_config` resolves to
+    # ANT0 / ANT1 (e.g. "ANT0", "TX0_ANT0"). Defaults are R11 / R12 — matches
+    # the U300B0 EVT bench layout. Engineers can override on the instance
+    # before calling setup_NrTx if the DUT routes antennas elsewhere.
+    in_rf_connector_ant0: int = 1
+    in_rf_connector_ant1: int = 2
 
     def __init__(self):
         self.log = logging.getLogger(__name__)
@@ -85,6 +91,39 @@ class CMW100AMixin:
         if self.Nrfr1Meas is not None:
             self.Nrfr1Meas.close()
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_rf_connector(self, in_ul_config, in_rf_connector):
+        """Pick the RF input connector index based on the UL antenna config.
+
+        The original OpenTAP code only recognized exact ``"ANT0"`` / ``"ANT1"``
+        strings, which crashed with ``UnboundLocalError`` on any other value
+        (including the ``"TX0_ANT0"`` / ``"TX0_ANT1"`` forms the U300B0 EVT
+        configs actually use — discovered on bench SZLABPC-WIN04 in
+        v1.0.0-rc8 bring-up). v1.0.0-rc9 generalizes the match:
+
+        - ``None``                  → ``in_rf_connector`` (caller's explicit pick)
+        - any string ending in ``"ANT0"`` → ``self.in_rf_connector_ant0``
+        - any string ending in ``"ANT1"`` → ``self.in_rf_connector_ant1``
+        - anything else             → ``in_rf_connector`` + warning log
+
+        The "ends with" match handles ``ANT0`` / ``TX0_ANT0`` / ``TX1_ANT0``
+        uniformly: in every bench layout we've seen, the antenna index
+        determines which physical R1x port to use, not the TX-path prefix.
+        """
+        if isinstance(in_ul_config, str):
+            if in_ul_config.endswith("ANT0"):
+                return self.in_rf_connector_ant0
+            if in_ul_config.endswith("ANT1"):
+                return self.in_rf_connector_ant1
+            self.log.warning(
+                "setup_NrTx: in_ul_config=%r not recognized; "
+                "falling back to in_rf_connector=%s",
+                in_ul_config, in_rf_connector)
+        return in_rf_connector
+
     def setup_NrTx(self, in_band='n41', in_freq_pll_Hz=2.5E9, in_rfbw_Hz=5E6,
                     in_rb_centre_freq_Hz=15000, in_tx_power_dBm=5,
                     in_tx_power_backoff_dB = 0, in_modulation="16QAM",
@@ -97,13 +136,7 @@ class CMW100AMixin:
             return
 
 
-        if in_ul_config is not None:
-            if in_ul_config=="ANT0":
-                rf_con = self.in_rf_connector_ant0
-            elif in_ul_config=="ANT1":
-                rf_con = self.in_rf_connector_ant1
-        else:
-            rf_con = in_rf_connector
+        rf_con = self._resolve_rf_connector(in_ul_config, in_rf_connector)
 
         fdd = [1,2,3,4,5,7,8,12,13,14,18,20,24,25,26,28,30,31,65,66,70,71,72,74,85,91,92,93,94,100,105,106,109]
         tdd = [34,38,39,40,41,48,50,51,53,54,77,78,79,90,96,101,102,104]
