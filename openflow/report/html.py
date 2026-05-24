@@ -86,8 +86,13 @@ class HTMLReportRenderer:
         self.data: dict[str, Any] = json.loads(self.json_path.read_text())
 
     def render(self, output_path: Path | str) -> None:
-        """Render to the given output path. Overwrites if it exists."""
+        """Render to the given output path. Overwrites if it exists.
+
+        Auto-creates the parent directory if it doesn't exist — same
+        ergonomic fix as :func:`openflow.results.write_session_report`.
+        """
         out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
         html_str = self._render_str()
         out.write_text(html_str, encoding="utf-8")
 

@@ -201,6 +201,10 @@ def _persist_to_db(session: pytest.Session, json_report_path: str) -> None:
                    if cfg.storage.sqlite_path is not None
                    else json_path.parent / "report.db")
     try:
+        # Match the report-output ergonomic: auto-create the parent dir
+        # so engineers don't need to mkdir before pointing storage at a
+        # subdirectory.
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         backend = SQLiteBackend(sqlite_path)
         backend.ensure_schema()
         backend.ingest_json(json_path)

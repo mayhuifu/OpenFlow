@@ -58,6 +58,30 @@ def test_html_report_option_writes_html(
     assert "OpenFlow report" in content
 
 
+def test_report_options_auto_create_parent_dir(
+        pytester: pytest.Pytester, tmp_path: Path) -> None:
+    """v1.0.0-rc3 bench-feedback fix: ``--openflow-report=reports/X.json``
+    and ``--openflow-html-report=reports/X.html`` must auto-create
+    the ``reports/`` directory if it doesn't exist. Previously crashed
+    pytest_sessionfinish with FileNotFoundError on bench machines that
+    didn't pre-mkdir."""
+    pytester.makepyfile("""
+        def test_trivial():
+            assert 1 == 1
+    """)
+    json_report = tmp_path / "missing-dir" / "subdir" / "report.json"
+    html_report = tmp_path / "missing-dir" / "subdir" / "report.html"
+    assert not json_report.parent.exists()  # pre-condition
+
+    result = pytester.runpytest(
+        f"--openflow-report={json_report}",
+        f"--openflow-html-report={html_report}",
+    )
+    assert result.ret == 0
+    assert json_report.exists()
+    assert html_report.exists()
+
+
 def test_html_report_option_works_without_explicit_json(
         pytester: pytest.Pytester, tmp_path: Path) -> None:
     """V2: --openflow-html-report alone (no --openflow-report) still works

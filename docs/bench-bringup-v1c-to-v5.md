@@ -7,6 +7,33 @@
 
 ---
 
+> ### ⚠️ Windows / PowerShell users
+>
+> The example commands in this runbook use the Unix `\` line-continuation syntax
+> for readability. **PowerShell does not understand `\` — it uses backtick `` ` ``
+> instead.** Three safe options for running multi-line commands on Windows:
+>
+> 1. **Best — paste as one line.** Remove the `\` characters and run as a single command:
+>    ```powershell
+>    uv run pytest tests/bench_bringup/test_01_cmw100_connectivity.py --openflow-config=tests/configs/u300b0_evt.yaml --openflow-report=reports/01-conn.json --log-cli-level=INFO -v
+>    ```
+> 2. **Replace `\` with backtick `` ` ``:**
+>    ```powershell
+>    uv run pytest tests/bench_bringup/test_01_cmw100_connectivity.py `
+>        --openflow-config=tests/configs/u300b0_evt.yaml `
+>        --openflow-report=reports/01-conn.json `
+>        --log-cli-level=INFO -v
+>    ```
+> 3. **Use Git Bash / WSL** — the `\` continuations work natively.
+>
+> Symptom if you ignore this: PowerShell runs `uv run pytest <path> \` (with `\` parsed
+> as a backslash, not a continuation), pytest sees no test-path filter and scans the
+> **entire `C:` drive**, hitting `PermissionError: [WinError 5] 拒绝访问。` on
+> `$Recycle.Bin\...` and similar restricted directories.
+>
+> The runbook also auto-creates report output directories — you don't need to
+> `mkdir reports` before running.
+
 ## How to use this document
 
 This is an **operational runbook**, not a tutorial. Each phase has:

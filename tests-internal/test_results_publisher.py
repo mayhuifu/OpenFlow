@@ -41,3 +41,27 @@ def test_write_session_report_writes_json(tmp_path: Path):
     assert len(payload["tests"]) == 2
     assert payload["tests"][0]["test_id"] == "test_a"
     assert payload["tests"][1]["records"][1]["value"] == 3
+
+
+def test_write_session_report_creates_missing_parent_dir(tmp_path: Path):
+    """v1.0.0-rc3 bench-feedback fix: when the engineer runs the bench
+    bring-up tests with ``--openflow-report=reports/01-conn.json`` and
+    the ``reports/`` directory doesn't exist yet, the framework should
+    auto-create it rather than crashing in pytest_sessionfinish."""
+    out = tmp_path / "does-not-exist-yet" / "subdir" / "report.json"
+    assert not out.parent.exists()  # confirm pre-condition
+
+    write_session_report(out, publishers=[],
+                         session_summary={"exit_status": 0})
+
+    assert out.exists()
+    assert out.parent.exists()
+
+
+def test_write_session_report_does_not_clobber_existing_dir(tmp_path: Path):
+    """Auto-mkdir should be idempotent — passing an existing directory
+    must not raise."""
+    out = tmp_path / "report.json"  # tmp_path already exists
+    write_session_report(out, publishers=[],
+                         session_summary={"exit_status": 0})
+    assert out.exists()
