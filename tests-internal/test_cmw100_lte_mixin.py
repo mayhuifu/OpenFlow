@@ -207,6 +207,56 @@ def test_setup_lte_tx_does_not_send_instrument_create_or_select():
         )
 
 
+# --- v1.0.0-rc11 bench-feedback regression --------------------------------
+# bench SZLABPC-WIN04 (rc10) emitted:
+#   _write_scpi_tolerant: 'ROUTe:LTE:MEASurement1:SCENario:SALone R11'
+#       -> -109,"Missing parameter;ROUTe:LTE:MEASurement1:SCENario:SALone R11"
+# repeated 5x → 0/5 records emitted. The R&S CMW SCPI grammar requires
+# TWO parameters: <RxConnector>, <RfConverter>. rc11 adds the converter.
+
+def test_setup_lte_tx_route_scenario_salone_includes_converter():
+    """rc11: ROUTe:LTE:MEASurement1:SCENario:SALone requires a second
+    parameter (RfConverter). The mixin must emit `R1<n>, RX1` form,
+    not bare `R1<n>` (which triggers -109 on firmware 3.8.17)."""
+    lte = CMW100LteMixin()
+    lte.is_emulation = True
+    lte.Open(VisaAddress=None)
+    lte.setup_LteTx(in_band="B7", in_freq_pll_Hz=2.65e9, in_rfbw_Hz=10e6,
+                    in_rf_connector=1)
+
+    route_cmds = [cmd for cmd in lte._scpi_log
+                  if cmd.startswith("ROUTe:LTE:MEASurement1:SCENario:SALone")]
+    assert len(route_cmds) == 1, (
+        f"Expected exactly one ROUTe:...:SCENario:SALone command; "
+        f"got: {route_cmds!r}"
+    )
+    cmd = route_cmds[0]
+    # Must include both arguments separated by a comma.
+    assert "," in cmd, (
+        f"ROUTe:...:SCENario:SALone must include a second parameter "
+        f"(RfConverter); got {cmd!r} (triggers -109 on CMW100 fw 3.8.17)"
+    )
+    # Sanity-pin the canonical form for in_rf_connector=1.
+    assert "R11" in cmd and "RX1" in cmd, (
+        f"Expected R11 + RX1 in the SALone command; got {cmd!r}"
+    )
+
+
+def test_setup_lte_tx_route_uses_correct_connector_index():
+    """When the caller picks a non-default connector (e.g. R12), the
+    SALone command must reflect that — not regress to a hard-coded R11."""
+    lte = CMW100LteMixin()
+    lte.is_emulation = True
+    lte.Open(VisaAddress=None)
+    lte.setup_LteTx(in_band="B7", in_freq_pll_Hz=2.65e9, in_rfbw_Hz=10e6,
+                    in_rf_connector=2)
+    route_cmds = [cmd for cmd in lte._scpi_log
+                  if cmd.startswith("ROUTe:LTE:MEASurement1:SCENario:SALone")]
+    assert any("R12" in cmd for cmd in route_cmds), (
+        f"in_rf_connector=2 must produce R12, not R1<other>: {route_cmds!r}"
+    )
+
+
 # --- CMW100 façade integration ------------------------------------------
 
 def test_cmw100_facade_exposes_lte_methods():

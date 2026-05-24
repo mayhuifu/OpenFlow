@@ -95,6 +95,46 @@ class CMW100AMixin:
     # Helpers
     # ------------------------------------------------------------------
 
+    def get_NrErrors(self, max_iters: int = 20) -> list[str]:
+        """Drain the CMW100 SCPI error queue after an NR measurement op.
+
+        Returns the list of error strings collected. Logs each entry at
+        WARNING level. Stores the list in ``self.err_list`` for
+        downstream inspection. **Does NOT raise** — callers
+        (``meas_NrTxEVM``, ``meas_NrTxPower``) expect a non-fatal
+        post-operation check.
+
+        Migration leftover: the original OpenTAP source defined this on
+        a shared error-handling base class that we didn't port in V1a.
+        Bench test_03 on SZLABPC-WIN04 (firmware 3.8.17, v1.0.0-rc9)
+        caught the missing method with ``AttributeError``. Implementation
+        mirrors the pattern in ``test_03c_cmw100_lte_diagnostics.py``'s
+        ``_drain_errors`` helper, which is known-good against this
+        firmware vintage.
+
+        In ``is_emulation`` mode (or when ``Base`` isn't open),
+        returns an empty list immediately.
+        """
+        self.err_list = []
+        if self.is_emulation or self.Base is None:
+            return self.err_list
+        for _ in range(max_iters):
+            try:
+                err = self.Base.utilities.query_str("SYSTem:ERRor?")
+            except Exception as exc:
+                self.log.warning(
+                    "get_NrErrors: SYSTem:ERRor? query failed: %s", exc)
+                break
+            if not err:
+                break
+            # "No error" replies vary in form across R&S firmware vintages.
+            if err.startswith("0,") or err.startswith("+0,") or \
+                    '"No error"' in err:
+                break
+            self.err_list.append(err)
+            self.log.warning("CMW100 NR error: %s", err)
+        return self.err_list
+
     def _resolve_rf_connector(self, in_ul_config, in_rf_connector):
         """Pick the RF input connector index based on the UL antenna config.
 

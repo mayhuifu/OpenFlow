@@ -216,8 +216,15 @@ class CMW100LteMixin:
         # command below was independently verified to receive `OK` status
         # checks from the SDK on firmware 3.8.17.
         scpi_writes = [
-            # Connector.
-            f"ROUTe:LTE:MEASurement1:SCENario:SALone R1{in_rf_connector}",
+            # Connector + converter. The R&S CMW SCPI grammar for
+            # `ROUTe:LTE:MEASurement<n>:SCENario:SALone` requires TWO
+            # parameters: the RF input connector (R11..R18) and the
+            # RF converter (RX1..RX4). v1.0.0-rc10 sent only the
+            # connector → firmware 3.8.17 rejected with -109
+            # "Missing parameter" (bench SZLABPC-WIN04). RX1 is the
+            # default LTE Meas converter — the SDK's
+            # `set_connector(R11)` call also resolves to this same pair.
+            f"ROUTe:LTE:MEASurement1:SCENario:SALone R1{in_rf_connector}, RX1",
             # RF settings — external attenuation, envelope power, user margin.
             "CONFigure:LTE:MEASurement1:RFSettings:EATTenuation 0",
             f"CONFigure:LTE:MEASurement1:RFSettings:ENPower {in_tx_power_dBm + 20.0:.2f}",

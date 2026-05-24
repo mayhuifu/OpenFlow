@@ -117,3 +117,19 @@ def test_cmw100_lte_tx_evm_smoke(cmw100, results):
 
     logger.info("LTE smoke complete: %d/%d records emitted",
                 n_emitted, len(SMOKE_SWEEP_DBM))
+    if n_emitted == 0:
+        logger.warning(
+            "=" * 70)
+        logger.warning(
+            "LTE smoke test PASSED but 0/%d records were emitted.",
+            len(SMOKE_SWEEP_DBM))
+        logger.warning(
+            "This means every meas_LteTx* returned NaN — likely a SCPI "
+            "tree mismatch or no RF signal at the port. The test is "
+            "intentionally lenient (NaN != exception, see docstring) to "
+            "tolerate flaky benches, but in practice 0/%d almost always "
+            "means a real bug. Inspect the WARNING lines above this "
+            "summary for the failing SCPI command(s).",
+            len(SMOKE_SWEEP_DBM))
+        logger.warning(
+            "=" * 70)
