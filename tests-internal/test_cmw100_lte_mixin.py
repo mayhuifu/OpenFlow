@@ -144,8 +144,14 @@ def test_setup_lte_tx_uses_measurement1_suffix_not_bare_meas():
     # Every command must use the `MEASurement1` form, not the bare `MEAS`.
     log_text = "\n".join(lte._scpi_log)
     assert "LTE:MEASurement1:" in log_text
-    # Regression-pin the specific commands that fired -114 on bench:
-    assert "CONFigure:LTE:MEASurement1:MEValuation:DMODe FDD" in lte._scpi_log
+    # Regression-pin two specific commands proven by test_03d Phase 6 on
+    # firmware 3.8.17. The SDK's known-good calls emit identical headers,
+    # so these are the canonical raw-SCPI equivalents.
+    assert "CONFigure:LTE:MEASurement1:RFSettings:EATTenuation 0" in lte._scpi_log
+    assert any(c.startswith("CONFigure:LTE:MEASurement1:RFSettings:ENPower")
+               for c in lte._scpi_log), (
+        f"setup_LteTx must send :RFSettings:ENPower; got {lte._scpi_log!r}"
+    )
     # No bare `:MEAS:` should appear anywhere (would re-trigger -114).
     for cmd in lte._scpi_log:
         # `MEAS` is a valid token only when followed by a digit (e.g. MEAS1) —
@@ -153,6 +159,51 @@ def test_setup_lte_tx_uses_measurement1_suffix_not_bare_meas():
         assert ":MEAS:" not in cmd, (
             f"Bare ':MEAS:' (no instance suffix) found in SCPI command — "
             f"will trigger -114 'Header suffix out of range' on CMW100: {cmd!r}"
+        )
+
+
+# --- v1.0.0-rc8 bench-feedback regressions --------------------------------
+# Phase 6 of test_03d on bench SZLABPC-WIN04 confirmed two commands we
+# previously sent must NOT be sent on firmware 3.8.17 (which uses the OLD
+# single-app architecture). These tests pin that absence.
+
+def test_setup_lte_tx_does_not_send_dmode():
+    """rc8: `CONFigure:LTE:MEASurement1:MEValuation:DMODe FDD` returns
+    `-114 "Header suffix out of range"` on CMW100 firmware 3.8.17 because
+    FDD vs TDD is selected by which license is active (KM500 = FDD,
+    KM550 = TDD), not by a runtime SCPI parameter. The mixin must NOT
+    issue DMODe at all — regardless of what the caller passes for
+    in_duplex_mode."""
+    for mode in ("FDD", "TDD"):
+        lte = CMW100LteMixin()
+        lte.is_emulation = True
+        lte.Open(VisaAddress=None)
+        lte.setup_LteTx(in_band="B7", in_freq_pll_Hz=2.65e9, in_rfbw_Hz=10e6,
+                        in_tx_power_dBm=0.0, in_duplex_mode=mode)
+        for cmd in lte._scpi_log:
+            assert "DMODe" not in cmd, (
+                f"setup_LteTx must not send DMODe — would trigger -114 on "
+                f"CMW100 firmware 3.8.17 (mode={mode}, cmd={cmd!r})"
+            )
+
+
+def test_setup_lte_tx_does_not_send_instrument_create_or_select():
+    """rc8: `INSTrument:CREate` returns `-113 "undefined header"` and
+    `INSTrument:SELect "<name>"` returns `-158 "String data not allowed"`
+    on CMW100 firmware 3.8.17 (single-app architecture — there's nothing
+    to create or select). The mixin must not issue either command."""
+    lte = CMW100LteMixin()
+    lte.is_emulation = True
+    lte.Open(VisaAddress=None)
+    lte.setup_LteTx(in_band="B7", in_freq_pll_Hz=2.65e9, in_rfbw_Hz=10e6)
+    for cmd in lte._scpi_log:
+        assert "INSTrument:CREate" not in cmd, (
+            f"setup_LteTx must not send INSTrument:CREate — would trigger "
+            f"-113 on CMW100 firmware 3.8.17: {cmd!r}"
+        )
+        assert "INSTrument:SELect" not in cmd, (
+            f"setup_LteTx must not send INSTrument:SELect — would trigger "
+            f"-158 on CMW100 firmware 3.8.17: {cmd!r}"
         )
 
 

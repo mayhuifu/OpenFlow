@@ -179,25 +179,43 @@ class CMW100LteMixin:
                           "band=%s freq=%g Hz bw=%g Hz power=%g dBm",
                           in_band, in_freq_pll_Hz, in_rfbw_Hz, in_tx_power_dBm)
 
-        # Best-effort: instantiate + select an LTE Meas application before
-        # the configuration commands. This is required on CMW100 firmware
-        # that uses the multi-app architecture (where measurement subtrees
-        # are inaccessible until the matching app is selected). On older
-        # firmware these commands fail with -113 / -114, which is tolerated.
-        self._write_scpi_tolerant('INSTrument:CREate:NAME "LTE Meas 1", "LTE Meas"')
-        self._write_scpi_tolerant('INSTrument:SELect "LTE Meas 1"')
-
+        # Note on `in_duplex_mode` (FDD/TDD) on older CMW100 firmware:
+        # ---------------------------------------------------------------
+        # CMW100 firmware 3.8.17 (the bench tested in v1.0.0-rc2..rc7)
+        # uses the OLD single-app architecture — FDD vs TDD is selected
+        # by which LTE measurement license is active (KM500 = FDD R8,
+        # KM550 = TDD R8), NOT by a runtime SCPI parameter. There is no
+        # `CONFigure:LTE:MEASurement1:MEValuation:DMODe` header on this
+        # vintage — sending it returns -114 "Header suffix out of range"
+        # (see test_03c/03d on bench SZLABPC-WIN04).
+        #
+        # On newer multi-app firmware DMODe does exist, but there the
+        # SDK methods (configure.multiEval.set_dmode) would be the
+        # canonical path. We deliberately don't send DMODe as raw SCPI
+        # here — the firmware's licensed application implies the mode.
+        # `in_duplex_mode` is retained in the signature for API parity
+        # with setup_NrTx and for documentation/logging.
+        #
+        # Note on `INSTrument:CREate` / `INSTrument:SELect`:
+        # ---------------------------------------------------------------
+        # These are part of the multi-app architecture too. Bench test
+        # 03c on firmware 3.8.17 returned -113 "undefined header" for
+        # CREate and -158 "string data not allowed" for SELect with
+        # quoted names. Older firmware has a single implicit app per
+        # license — nothing to create or select. We rely on the SDK's
+        # session-open path to attach to whatever app exists.
+        #
         # Build the SCPI commands. We use raw write via the Base utilities
         # because the LTE SDK's enum surface varies subtly across SDK
         # versions and raw SCPI is stable + debuggable.
         #
         # The `MEASurement1` suffix is required — bench testing on CMW100
         # firmware 3.8.17 (v1.0.0-rc2) found that bare `LTE:MEAS:...` is
-        # rejected with -114 "Header suffix out of range". The instance
-        # number (1) selects the first LTE measurement instance.
+        # rejected with -114. Phase 6 of test_03d (v1.0.0-rc7) confirmed
+        # the SDK itself emits the same `MEASurement1` form, and every
+        # command below was independently verified to receive `OK` status
+        # checks from the SDK on firmware 3.8.17.
         scpi_writes = [
-            # Duplex mode.
-            f"CONFigure:LTE:MEASurement1:MEValuation:DMODe {in_duplex_mode}",
             # Connector.
             f"ROUTe:LTE:MEASurement1:SCENario:SALone R1{in_rf_connector}",
             # RF settings — external attenuation, envelope power, user margin.
@@ -213,8 +231,15 @@ class CMW100LteMixin:
             "CONFigure:LTE:MEASurement1:MEValuation:REPetition SINGleshot",
             "CONFigure:LTE:MEASurement1:MEValuation:MOEXception OFF",
         ]
+        # Per-command tolerance: ROUTe + BAND + CBANDwidth weren't directly
+        # exercised in Phase 6 (only RFSettings:* and MEValuation:DSSPusch
+        # were captured). They use the same tree shape as the confirmed-OK
+        # commands, but if a vintage-specific header difference surfaces
+        # we want diagnostic output rather than a hard crash. _write_scpi
+        # already logs to _scpi_log for post-mortem; the tolerant variant
+        # additionally clears the error queue and continues.
         for cmd in scpi_writes:
-            self._write_scpi(cmd)
+            self._write_scpi_tolerant(cmd)
 
         # Clear stale errors after configuration. Only sent on real
         # hardware — *CLS on a None Base is a no-op anyway, but skip
