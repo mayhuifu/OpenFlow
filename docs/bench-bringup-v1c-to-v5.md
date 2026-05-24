@@ -120,7 +120,7 @@ cd OpenFlow
 ```sh
 uv sync
 # For PostgreSQL + plotting support (optional):
-uv sync --extras postgres --extras plot
+uv sync --extra postgres --extra plot
 ```
 
 Expected: completes without errors, ~700 MB of wheels installed.
@@ -950,7 +950,7 @@ uv run openflow report --db reports/report.db trend \
 ### Step 6.5 — Optional: matplotlib plot
 
 ```sh
-uv sync --extras plot
+uv sync --extra plot
 uv run openflow report --db reports/report.db trend \
     --test CMW100-TX-EVM-SMOKE \
     --metric measured_EVM_pct \
@@ -971,7 +971,7 @@ storage:
 ```
 
 ```sh
-uv sync --extras postgres
+uv sync --extra postgres
 # Run any test; the plugin writes to both SQLite and Postgres.
 ```
 

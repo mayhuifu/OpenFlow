@@ -140,7 +140,7 @@ for per-session lookups.
   use. Native in CPython, no install step.
 - **PostgreSQL** (optional): proper concurrent writes, network-accessible,
   suitable for shared lab DB. Requires `psycopg2-binary` (declared as an
-  optional extra in pyproject — `uv sync --extras postgres` installs it).
+  optional extra in pyproject — `uv sync --extra postgres` installs it).
 
 ORM vs raw: prefer SQLAlchemy Core (not ORM) for the schema — keeps the
 queries SQL-readable, avoids ORM-overhead, and makes the migration story

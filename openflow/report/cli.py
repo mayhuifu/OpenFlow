@@ -194,7 +194,7 @@ def _emit_plot(plot_path: str, points: list[tuple[datetime, float]],
     try:
         import matplotlib.pyplot as plt  # type: ignore[import-not-found]
     except ImportError:
-        print("matplotlib not installed — re-run with `uv sync --extras plot`",
+        print("matplotlib not installed — re-run with `uv sync --extra plot`",
               file=sys.stderr)
         return 2
     xs = [ts for ts, _ in points]
@@ -253,7 +253,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_trend.add_argument("--since", type=_parse_duration, default=None)
     p_trend.add_argument("--plot", default=None,
                          help="Write a PNG chart of the trend (requires "
-                              "matplotlib, install via `uv sync --extras plot`)")
+                              "matplotlib, install via `uv sync --extra plot`)")
     p_trend.add_argument("--json", action="store_true")
     p_trend.set_defaults(func=cmd_trend)
 

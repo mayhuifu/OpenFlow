@@ -1,6 +1,6 @@
 """PostgreSQL backend for V4 persistent results.
 
-Optional — requires the ``postgres`` extra (``uv sync --extras postgres``).
+Optional — requires the ``postgres`` extra (``uv sync --extra postgres``).
 The local SQLite backend stays the source of truth; PostgreSQL is for
 multi-bench shared queries + dashboards.
 
