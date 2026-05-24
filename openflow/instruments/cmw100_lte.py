@@ -179,6 +179,14 @@ class CMW100LteMixin:
                           "band=%s freq=%g Hz bw=%g Hz power=%g dBm",
                           in_band, in_freq_pll_Hz, in_rfbw_Hz, in_tx_power_dBm)
 
+        # Best-effort: instantiate + select an LTE Meas application before
+        # the configuration commands. This is required on CMW100 firmware
+        # that uses the multi-app architecture (where measurement subtrees
+        # are inaccessible until the matching app is selected). On older
+        # firmware these commands fail with -113 / -114, which is tolerated.
+        self._write_scpi_tolerant('INSTrument:CREate:NAME "LTE Meas 1", "LTE Meas"')
+        self._write_scpi_tolerant('INSTrument:SELect "LTE Meas 1"')
+
         # Build the SCPI commands. We use raw write via the Base utilities
         # because the LTE SDK's enum surface varies subtly across SDK
         # versions and raw SCPI is stable + debuggable.
@@ -299,6 +307,28 @@ class CMW100LteMixin:
                                  "dropping %r", cmd)
             return
         self.Base.utilities.write_str(cmd)
+
+    def _write_scpi_tolerant(self, cmd: str) -> bool:
+        """Write a SCPI command; log + swallow any instrument error.
+
+        Returns True on success, False on instrument-side rejection.
+        Used for best-effort setup steps (e.g. INSTrument:CREate that
+        might already exist) where we want to continue on error.
+        """
+        self._scpi_log.append(cmd)
+        if self.Base is None:
+            return self.is_emulation  # treat as "ok" in emulation
+        try:
+            self.Base.utilities.write_str(cmd)
+            return True
+        except Exception as exc:
+            self.log.info("_write_scpi_tolerant: %r -> %s (continuing)", cmd, exc)
+            # Clear the error queue so subsequent commands don't see this.
+            try:
+                self.Base.utilities.write_str("*CLS")
+            except Exception:
+                pass
+            return False
 
     def _query_scpi(self, cmd: str) -> str | None:
         """Send a raw SCPI query via the Base utilities. Returns None
